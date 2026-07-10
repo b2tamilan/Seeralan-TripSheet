@@ -307,6 +307,42 @@
     </div>
   </section>
 
+  <!-- ============ TAB: PARTIES (masters + ledger) ============ -->
+  <section class="tab-page" id="page-parties">
+    <div class="card">
+      <h2>💰 Receiver Ledger — Outstanding</h2>
+      <p class="hint" style="margin-bottom:10px">Charges = all bags delivered (all days) × current rate ₹<span class="rateShow2"></span>. Balance = charges − payments received.</p>
+      <div id="ledgerTable"></div>
+    </div>
+    <div class="card">
+      <h2>🧾 Record Payment Received</h2>
+      <label class="fld">From receiver</label>
+      <select id="payCode"></select>
+      <label class="fld">Date</label>
+      <input type="date" id="payDate" class="plain">
+      <label class="fld">Amount received (₹)</label>
+      <input type="number" id="payAmt" min="0" inputmode="numeric" placeholder="e.g. 5000">
+      <label class="fld">Note (optional)</label>
+      <input type="text" id="payNote" placeholder="cash / GPay / partial…">
+      <button class="btn btn-green btn-block" onclick="savePayment()">💾 Save Payment</button>
+    </div>
+    <div class="card">
+      <h2>📜 Payment History</h2>
+      <div id="payList"></div>
+    </div>
+    <div class="card">
+      <h2>🚚 Seller Masters</h2>
+      <p class="hint">Name, address &amp; WhatsApp number of each loading point. Names appearing in trip entries show up here automatically.</p>
+      <div id="sellerMasters"></div>
+      <button class="btn btn-ghost btn-sm" style="margin-top:8px" onclick="masterAdd('sellers')">＋ Add seller</button>
+    </div>
+    <div class="card">
+      <h2>🏪 Receiver Masters</h2>
+      <div id="recvMasters"></div>
+      <button class="btn btn-ghost btn-sm" style="margin-top:8px" onclick="masterAdd('receivers')">＋ Add receiver</button>
+    </div>
+  </section>
+
   <!-- ============ TAB: BACKUP ============ -->
   <section class="tab-page" id="page-backup">
     <div class="card">
@@ -356,6 +392,7 @@
   <button data-tab="entry" class="active"><span class="ico">✏️</span>Entry</button>
   <button data-tab="trip"><span class="ico">🚚</span>Trip Sheet</button>
   <button data-tab="recv"><span class="ico">📦</span>Receivers</button>
+  <button data-tab="parties"><span class="ico">👥</span>Parties</button>
   <button data-tab="backup"><span class="ico">🛟</span>Backup</button>
 </nav>
 
@@ -368,7 +405,10 @@
 'use strict';
 /* ================= State ================= */
 const LS_KEY = 'lemonTripSheet_v1';
-let store = { rate: 250, autoBackup: true, days: {} };   // days: { 'YYYY-MM-DD': [ {name, receivers:[{code,qty}]} ] }
+/* days: { 'YYYY-MM-DD': [ {name, receivers:[{code,qty}]} ] }
+   masters: { sellers:{ [name]:{address,phone} }, receivers:{ [code]:{address,phone} } }
+   payments: [ {date:'YYYY-MM-DD', code:'AR', amount:5000, note:''} ] */
+let store = { rate: 250, autoBackup: true, days: {}, masters: {sellers:{}, receivers:{}}, payments: [] };
 let editIndex = -1;
 
 function load(){
@@ -379,6 +419,10 @@ function load(){
   if(typeof store.rate !== 'number' || !(store.rate >= 0)) store.rate = 250;
   if(typeof store.autoBackup !== 'boolean') store.autoBackup = true;
   if(!store.days || typeof store.days !== 'object') store.days = {};
+  if(!store.masters || typeof store.masters !== 'object') store.masters = {};
+  if(!store.masters.sellers || typeof store.masters.sellers !== 'object') store.masters.sellers = {};
+  if(!store.masters.receivers || typeof store.masters.receivers !== 'object') store.masters.receivers = {};
+  if(!Array.isArray(store.payments)) store.payments = [];
 }
 function save(){ localStorage.setItem(LS_KEY, JSON.stringify(store)); }
 
@@ -501,7 +545,7 @@ function deleteEntry(i){
   store.days[curDate()].splice(i,1);
   if(!store.days[curDate()].length) delete store.days[curDate()];
   if(editIndex===i) resetForm();
-  save(); renderAll(); toast('Entry deleted');
+  save(); autoBackup(); renderAll(); toast('Entry deleted');
 }
 
 /* ================= Bulk paste import ================= */
@@ -568,7 +612,7 @@ $('importBtn').addEventListener('click', ()=>{
 
 /* ================= Rendering ================= */
 function renderDatalists(){
-  const names=new Set(), codes=new Set();
+  const names=new Set(Object.keys(store.masters.sellers)), codes=new Set(Object.keys(store.masters.receivers));
   Object.values(store.days).forEach(list=>list.forEach(e=>{
     names.add(e.name);
     e.receivers.forEach(r=>codes.add(r.code.toUpperCase()));
@@ -674,6 +718,7 @@ function gotoDay(d){
 }
 function renderAll(){
   renderEntries(); renderDashboards(); renderDatalists(); renderDays();
+  renderLedger(); renderPayments(); renderMasters();
 }
 
 /* ================= Report DOMs (for PDF / image) ================= */
@@ -939,6 +984,162 @@ function shareWhatsApp(kind){
   window.open('https://wa.me/?text='+encodeURIComponent(whatsAppText(kind)),'_blank');
 }
 
+/* ================= Parties: ledger, payments, masters ================= */
+function allPartyNames(type){
+  const names=new Set(Object.keys(store.masters[type]));
+  Object.values(store.days).forEach(list=>list.forEach(e=>{
+    if(type==='sellers') names.add(e.name);
+    else e.receivers.forEach(r=>names.add(r.code.toUpperCase()));
+  }));
+  if(type==='receivers') store.payments.forEach(p=>names.add(p.code));
+  return [...names].sort();
+}
+function ledgerRows(){
+  const bags={};   // code -> total bags across ALL days
+  Object.values(store.days).forEach(list=>list.forEach(e=>e.receivers.forEach(r=>{
+    const c=r.code.toUpperCase(); bags[c]=(bags[c]||0)+(+r.qty||0);
+  })));
+  const paid={};
+  store.payments.forEach(p=>paid[p.code]=(paid[p.code]||0)+(+p.amount||0));
+  const codes=new Set([...Object.keys(bags), ...Object.keys(paid)]);
+  return [...codes].map(code=>{
+    const b=bags[code]||0, charges=b*store.rate, received=paid[code]||0;
+    return {code, bags:b, charges, received, balance:charges-received};
+  }).sort((a,b)=>b.balance-a.balance || a.code.localeCompare(b.code));
+}
+function waLink(phone, text){
+  let d=String(phone||'').replace(/\D/g,'');
+  if(!d) return null;
+  if(d.length===10) d='91'+d;
+  return 'https://wa.me/'+d+(text?'?text='+encodeURIComponent(text):'');
+}
+function remindReceiver(code){
+  const row=ledgerRows().find(r=>r.code===code); if(!row) return;
+  const m=store.masters.receivers[code]||{};
+  const text='🍋 *Balance reminder — '+code+'*\n'
+    +'Bags delivered: '+row.bags+' × ₹'+store.rate+' = ₹'+row.charges.toLocaleString('en-IN')+'\n'
+    +'Paid so far: ₹'+row.received.toLocaleString('en-IN')+'\n'
+    +'*Balance pending: ₹'+row.balance.toLocaleString('en-IN')+'*\n'
+    +'(as on '+fmtDate(todayISO())+') — please arrange payment. Thank you! 🙏';
+  const url=waLink(m.phone, text) || 'https://wa.me/?text='+encodeURIComponent(text);
+  window.open(url,'_blank');
+}
+function renderLedger(){
+  const rows=ledgerRows();
+  document.querySelectorAll('.rateShow2').forEach(el=>el.textContent=store.rate);
+  if(!rows.length){ $('ledgerTable').innerHTML='<div class="empty"><span class="big">💰</span>No deliveries or payments yet.</div>'; return; }
+  const tb=rows.reduce((s,r)=>({bags:s.bags+r.bags,charges:s.charges+r.charges,received:s.received+r.received,balance:s.balance+r.balance}),{bags:0,charges:0,received:0,balance:0});
+  $('ledgerTable').innerHTML=`<div class="tbl-wrap"><table>
+    <thead><tr><th>Receiver</th><th class="num">Bags</th><th class="num">Charges</th><th class="num">Received</th><th class="num">Balance</th><th></th></tr></thead>
+    <tbody>${rows.map(r=>`<tr>
+      <td><b>${esc(r.code)}</b></td>
+      <td class="num">${r.bags}</td>
+      <td class="num">${inr(r.charges)}</td>
+      <td class="num" style="color:var(--leaf)">${inr(r.received)}</td>
+      <td class="num" style="font-weight:800;color:${r.balance>0?'var(--danger)':'var(--leaf)'}">${inr(r.balance)}</td>
+      <td>${r.balance>0?`<button class="icon-btn" data-remind="${esc(r.code)}" title="WhatsApp reminder">💬</button>`:'✅'}</td>
+    </tr>`).join('')}</tbody>
+    <tfoot><tr><td>TOTAL</td><td class="num">${tb.bags}</td><td class="num">${inr(tb.charges)}</td><td class="num">${inr(tb.received)}</td><td class="num">${inr(tb.balance)}</td><td></td></tr></tfoot>
+  </table></div>`;
+}
+$('ledgerTable').addEventListener('click', e=>{
+  const b=e.target.closest('button[data-remind]');
+  if(b) remindReceiver(b.dataset.remind);
+});
+function savePayment(){
+  const code=$('payCode').value;
+  const amount=+$('payAmt').value;
+  const date=$('payDate').value||todayISO();
+  if(!code){ toast('Choose a receiver'); return; }
+  if(!(amount>0)){ toast('Enter the amount received'); $('payAmt').focus(); return; }
+  store.payments.push({date, code, amount, note:$('payNote').value.trim()});
+  save(); autoBackup();
+  $('payAmt').value=''; $('payNote').value='';
+  renderAll();
+  const bal=ledgerRows().find(r=>r.code===code);
+  toast(inr(amount)+' from '+code+' saved ✔ Balance: '+inr(bal?bal.balance:0)+(store.autoBackup?' · backup ⬇':''));
+}
+function deletePayment(i){
+  const p=store.payments[i]; if(!p) return;
+  if(!confirm('Delete payment of '+inr(p.amount)+' from '+p.code+' on '+fmtDate(p.date)+'?')) return;
+  store.payments.splice(i,1);
+  save(); autoBackup(); renderAll(); toast('Payment deleted');
+}
+function renderPayments(){
+  const sel=$('payCode');
+  const codes=allPartyNames('receivers');
+  sel.innerHTML='<option value="">— choose receiver —</option>'+codes.map(c=>`<option value="${esc(c)}">${esc(c)}</option>`).join('');
+  const box=$('payList');
+  if(!store.payments.length){ box.innerHTML='<div class="empty">No payments recorded yet.</div>'; return; }
+  const idx=store.payments.map((p,i)=>i).sort((a,b)=>store.payments[b].date.localeCompare(store.payments[a].date) || b-a).slice(0,30);
+  box.innerHTML=idx.map(i=>{
+    const p=store.payments[i];
+    return `<div class="chl-row">
+      <div class="who">${esc(p.code)} — <span class="money">${inr(p.amount)}</span>
+        <small>${fmtDate(p.date)}${p.note?' · '+esc(p.note):''}</small></div>
+      <button class="icon-btn red" onclick="deletePayment(${i})" title="Delete">🗑️</button>
+    </div>`;
+  }).join('');
+}
+/* ----- masters ----- */
+let editingMaster=null;   // {type, name}
+function masterAdd(type){
+  let name=prompt(type==='sellers'?'Seller / shop name:':'Receiver code (e.g. AR):');
+  if(!name) return;
+  name=name.trim(); if(!name) return;
+  if(type==='receivers') name=name.toUpperCase();
+  if(!store.masters[type][name]) store.masters[type][name]={address:'',phone:''};
+  editingMaster={type,name};
+  renderMasters();
+}
+function masterEdit(type,name){ editingMaster={type,name}; renderMasters(); }
+function masterCancel(){ editingMaster=null; renderMasters(); }
+function masterSave(type,name){
+  const card=type==='sellers'?$('sellerMasters'):$('recvMasters');
+  store.masters[type][name]={
+    address:card.querySelector('.m-addr').value.trim(),
+    phone:card.querySelector('.m-phone').value.trim()
+  };
+  editingMaster=null;
+  save(); autoBackup(); renderAll();
+  toast(name+' saved ✔'+(store.autoBackup?' · backup ⬇':''));
+}
+function masterRowHTML(type,name){
+  const m=store.masters[type][name]||{address:'',phone:''};
+  if(editingMaster && editingMaster.type===type && editingMaster.name===name){
+    return `<div class="chl-row" style="flex-wrap:wrap">
+      <div class="who" style="flex-basis:100%">✏️ ${esc(name)}</div>
+      <div style="flex-basis:100%;display:grid;gap:8px;margin-top:6px">
+        <input type="text" class="m-addr" placeholder="Address / place" value="${esc(m.address)}">
+        <input type="text" class="m-phone" placeholder="WhatsApp number (10 digits)" inputmode="tel" value="${esc(m.phone)}">
+        <div style="display:flex;gap:8px">
+          <button class="btn btn-green btn-sm" data-msave="${esc(name)}">💾 Save</button>
+          <button class="btn btn-ghost btn-sm" data-mcancel="1">Cancel</button>
+        </div>
+      </div>
+    </div>`;
+  }
+  const wa=waLink(m.phone);
+  return `<div class="chl-row">
+    <div class="who">${esc(name)}
+      <small>${m.address?esc(m.address):'<i>no address</i>'} · ${m.phone?esc(m.phone):'<i>no number</i>'}</small></div>
+    ${wa?`<a class="icon-btn" style="text-decoration:none;display:flex;align-items:center;justify-content:center;background:#e7f8ec" href="${wa}" target="_blank" title="WhatsApp chat">💬</a>`:''}
+    <button class="icon-btn" data-medit="${esc(name)}" title="Edit">✏️</button>
+  </div>`;
+}
+function renderMasters(){
+  $('sellerMasters').innerHTML=allPartyNames('sellers').map(n=>masterRowHTML('sellers',n)).join('')||'<div class="empty">No sellers yet.</div>';
+  $('recvMasters').innerHTML=allPartyNames('receivers').map(n=>masterRowHTML('receivers',n)).join('')||'<div class="empty">No receivers yet.</div>';
+}
+[['sellerMasters','sellers'],['recvMasters','receivers']].forEach(([id,type])=>{
+  $(id).addEventListener('click', e=>{
+    const b=e.target.closest('button'); if(!b) return;
+    if(b.dataset.medit!==undefined) masterEdit(type, b.dataset.medit);
+    else if(b.dataset.msave!==undefined) masterSave(type, b.dataset.msave);
+    else if(b.dataset.mcancel!==undefined) masterCancel();
+  });
+});
+
 /* ================= Settings / backup ================= */
 function saveRate(){
   const v=+$('rateInput').value;
@@ -967,6 +1168,11 @@ $('restoreFile').addEventListener('change', ev=>{
       Object.assign(store.days, inc.days);
       if(typeof inc.rate==='number') store.rate=inc.rate;
       if(typeof inc.autoBackup==='boolean') store.autoBackup=inc.autoBackup;
+      if(inc.masters){
+        Object.assign(store.masters.sellers, inc.masters.sellers||{});
+        Object.assign(store.masters.receivers, inc.masters.receivers||{});
+      }
+      if(Array.isArray(inc.payments)) store.payments=inc.payments;
       save(); syncRateInput(); renderAll();
       toast('Restored '+nDays+' day(s) ✔');
     }catch(e){ toast('Not a valid backup file'); }
@@ -983,7 +1189,8 @@ function clearDay(){
 function clearAll(){
   if(!confirm('Erase ALL data on this device? Take a backup first!')) return;
   if(!confirm('Really erase everything? This cannot be undone.')) return;
-  store={rate:250,autoBackup:true,days:{}};
+  backupJSON(true);   // safety net: one last backup before wiping
+  store={rate:250,autoBackup:true,days:{},masters:{sellers:{},receivers:{}},payments:[]};
   save(); syncRateInput(); resetForm(); renderAll(); toast('All data erased');
 }
 function syncRateInput(){
@@ -1022,6 +1229,7 @@ async function installApp(){
 /* ================= Init ================= */
 load();
 $('curDate').value=todayISO();
+$('payDate').value=todayISO();
 $('curDate').addEventListener('change', ()=>{ resetForm(); renderAll(); });
 syncRateInput();
 resetForm();
