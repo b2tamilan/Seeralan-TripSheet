@@ -322,6 +322,11 @@
         <input type="number" id="rateInput" min="0" step="1">
         <button class="btn btn-green btn-sm" onclick="saveRate()">Save rate</button>
       </div>
+      <label class="fld" style="display:flex;align-items:center;gap:10px;margin-top:16px;font-size:.84rem;color:var(--ink);cursor:pointer">
+        <input type="checkbox" id="autoBackupChk" style="width:20px;height:20px;accent-color:var(--leaf)">
+        Auto-download backup JSON after every save / import
+      </label>
+      <p class="hint">Each backup gets a unique time-stamped filename, e.g. <b>LemonTripSheet_backup_10-Jul-2026_08-31-45.json</b>. The phone may ask once for permission to download multiple files — allow it.</p>
     </div>
     <div class="card">
       <h2>🛟 Backup &amp; Restore</h2>
@@ -363,7 +368,7 @@
 'use strict';
 /* ================= State ================= */
 const LS_KEY = 'lemonTripSheet_v1';
-let store = { rate: 250, days: {} };   // days: { 'YYYY-MM-DD': [ {name, receivers:[{code,qty}]} ] }
+let store = { rate: 250, autoBackup: true, days: {} };   // days: { 'YYYY-MM-DD': [ {name, receivers:[{code,qty}]} ] }
 let editIndex = -1;
 
 function load(){
@@ -372,6 +377,7 @@ function load(){
     if(raw){ const s = JSON.parse(raw); if(s && typeof s==='object'){ store = Object.assign({rate:250,days:{}}, s); } }
   }catch(e){ console.warn('load failed', e); }
   if(typeof store.rate !== 'number' || !(store.rate >= 0)) store.rate = 250;
+  if(typeof store.autoBackup !== 'boolean') store.autoBackup = true;
   if(!store.days || typeof store.days !== 'object') store.days = {};
 }
 function save(){ localStorage.setItem(LS_KEY, JSON.stringify(store)); }
@@ -470,9 +476,10 @@ $('saveBtn').addEventListener('click', ()=>{
   if(!e.receivers.length){ toast('Add at least one receiver with bags'); return; }
   const d = curDate();
   if(!store.days[d]) store.days[d]=[];
-  if(editIndex>=0){ store.days[d][editIndex]=e; toast('Entry updated ✔'); }
-  else { store.days[d].push(e); toast(e.name+' saved — '+entryTotal(e)+' bags ✔'); }
-  save(); resetForm(); renderAll();
+  const bk=store.autoBackup?' · backup ⬇':'';
+  if(editIndex>=0){ store.days[d][editIndex]=e; toast('Entry updated ✔'+bk); }
+  else { store.days[d].push(e); toast(e.name+' saved — '+entryTotal(e)+' bags ✔'+bk); }
+  save(); resetForm(); renderAll(); autoBackup();
 });
 
 function editEntry(i){
@@ -554,7 +561,7 @@ $('importBtn').addEventListener('click', ()=>{
   const d=curDate();
   if(!store.days[d]) store.days[d]=[];
   store.days[d].push(...entries);
-  save(); renderAll();
+  save(); renderAll(); autoBackup();
   $('pasteBox').value = errors.join('\n');
   toast('Imported '+entries.length+' entr'+(entries.length===1?'y':'ies')+(errors.length? ' · '+errors.length+' line(s) left in box':' ✔'));
 });
@@ -938,11 +945,16 @@ function saveRate(){
   if(!(v>=0)){ toast('Enter a valid rate'); return; }
   store.rate=v; save(); renderAll(); toast('Rate set to '+inr(v)+' per bag ✔');
 }
-function backupJSON(){
-  const blob=new Blob([JSON.stringify(store,null,2)],{type:'application/json'});
-  downloadBlob(blob,'LemonTripSheet_backup_'+fmtDate(todayISO())+'.json');
-  toast('Backup downloaded — keep it safe ✔');
+function backupStamp(){
+  const d=new Date(), p=n=>String(n).padStart(2,'0');
+  return fmtDate(todayISO())+'_'+p(d.getHours())+'-'+p(d.getMinutes())+'-'+p(d.getSeconds());
 }
+function backupJSON(auto){
+  const blob=new Blob([JSON.stringify(store,null,2)],{type:'application/json'});
+  downloadBlob(blob,'LemonTripSheet_backup_'+backupStamp()+'.json');
+  if(!auto) toast('Backup downloaded — keep it safe ✔');
+}
+function autoBackup(){ if(store.autoBackup) backupJSON(true); }
 $('restoreFile').addEventListener('change', ev=>{
   const f=ev.target.files[0]; if(!f) return;
   const rd=new FileReader();
@@ -954,6 +966,7 @@ $('restoreFile').addEventListener('change', ev=>{
       if(!confirm('Restore '+nDays+' day(s) from this backup? Same dates will be replaced by the backup.')) return;
       Object.assign(store.days, inc.days);
       if(typeof inc.rate==='number') store.rate=inc.rate;
+      if(typeof inc.autoBackup==='boolean') store.autoBackup=inc.autoBackup;
       save(); syncRateInput(); renderAll();
       toast('Restored '+nDays+' day(s) ✔');
     }catch(e){ toast('Not a valid backup file'); }
@@ -970,10 +983,17 @@ function clearDay(){
 function clearAll(){
   if(!confirm('Erase ALL data on this device? Take a backup first!')) return;
   if(!confirm('Really erase everything? This cannot be undone.')) return;
-  store={rate:250,days:{}};
+  store={rate:250,autoBackup:true,days:{}};
   save(); syncRateInput(); resetForm(); renderAll(); toast('All data erased');
 }
-function syncRateInput(){ $('rateInput').value=store.rate; }
+function syncRateInput(){
+  $('rateInput').value=store.rate;
+  $('autoBackupChk').checked=store.autoBackup;
+}
+$('autoBackupChk').addEventListener('change', e=>{
+  store.autoBackup=e.target.checked; save();
+  toast(store.autoBackup?'Auto-backup ON — JSON downloads after every save':'Auto-backup OFF');
+});
 
 /* ================= PWA: service worker + install prompt ================= */
 if('serviceWorker' in navigator && /^https?:$/.test(location.protocol)){
