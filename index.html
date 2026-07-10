@@ -1,0 +1,1011 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5">
+<title>🍋 Lemon Trip Sheet</title>
+<meta name="theme-color" content="#2d5c1f">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="TripSheet">
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="icon-192.png">
+<link rel="icon" type="image/png" href="icon-192.png">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js" defer></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js" defer></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js" defer></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js" defer></script>
+<style>
+  :root{
+    --bg:#f6f7f2;
+    --card:#ffffff;
+    --ink:#1d2510;
+    --muted:#6b7360;
+    --line:#e4e7db;
+    --lemon:#f5c518;
+    --lemon-dark:#c99a00;
+    --leaf:#3e7c2b;
+    --leaf-dark:#2d5c1f;
+    --danger:#c0392b;
+    --chip:#f0f3e6;
+    --radius:14px;
+    --shadow:0 1px 3px rgba(29,37,16,.08),0 4px 14px rgba(29,37,16,.06);
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html{-webkit-text-size-adjust:100%}
+  body{
+    font-family:system-ui,-apple-system,"Segoe UI",Roboto,"Noto Sans",sans-serif;
+    background:var(--bg);color:var(--ink);
+    min-height:100vh;padding-bottom:84px;
+  }
+  /* ---------- Header ---------- */
+  header{
+    background:linear-gradient(135deg,#3e7c2b,#2d5c1f);
+    color:#fff;padding:14px 16px 12px;
+    position:sticky;top:0;z-index:20;
+    box-shadow:0 2px 8px rgba(0,0,0,.18);
+  }
+  .head-row{display:flex;align-items:center;justify-content:space-between;gap:10px;max-width:680px;margin:0 auto}
+  .brand{font-size:1.05rem;font-weight:700;letter-spacing:.2px;display:flex;align-items:center;gap:8px}
+  .brand small{display:block;font-weight:400;font-size:.68rem;opacity:.85}
+  .date-wrap{display:flex;align-items:center;gap:6px;background:rgba(255,255,255,.14);border-radius:10px;padding:4px 8px}
+  .date-wrap input[type=date]{
+    background:transparent;border:none;color:#fff;font:inherit;font-size:.86rem;font-weight:600;outline:none;
+    color-scheme:dark;width:8.4em;
+  }
+  /* ---------- Layout ---------- */
+  main{max-width:680px;margin:0 auto;padding:14px 12px}
+  .card{background:var(--card);border-radius:var(--radius);box-shadow:var(--shadow);padding:16px;margin-bottom:14px}
+  .card h2{font-size:.98rem;margin-bottom:12px;display:flex;align-items:center;gap:8px;color:var(--leaf-dark)}
+  .hint{font-size:.76rem;color:var(--muted);line-height:1.45}
+  /* ---------- Tabs ---------- */
+  nav.tabs{
+    position:fixed;bottom:0;left:0;right:0;z-index:30;
+    background:var(--card);border-top:1px solid var(--line);
+    display:flex;justify-content:space-around;
+    padding:6px 4px calc(6px + env(safe-area-inset-bottom));
+    box-shadow:0 -2px 10px rgba(29,37,16,.07);
+  }
+  nav.tabs button{
+    flex:1;max-width:140px;background:none;border:none;cursor:pointer;
+    font:inherit;font-size:.68rem;font-weight:600;color:var(--muted);
+    display:flex;flex-direction:column;align-items:center;gap:2px;padding:5px 2px;border-radius:10px;
+  }
+  nav.tabs button .ico{font-size:1.25rem;line-height:1}
+  nav.tabs button.active{color:var(--leaf);background:var(--chip)}
+  .tab-page{display:none}
+  .tab-page.active{display:block;animation:fade .18s ease}
+  @keyframes fade{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:none}}
+  /* ---------- Forms ---------- */
+  label.fld{display:block;font-size:.76rem;font-weight:600;color:var(--muted);margin:10px 0 4px}
+  input[type=text],input[type=number],input[type=date].plain,textarea,select{
+    width:100%;padding:10px 12px;font:inherit;font-size:.95rem;
+    border:1.5px solid var(--line);border-radius:10px;background:#fcfdf9;color:var(--ink);
+    outline:none;transition:border-color .15s;
+  }
+  input:focus,textarea:focus{border-color:var(--leaf)}
+  textarea{resize:vertical;min-height:110px;font-size:.85rem;font-family:ui-monospace,Consolas,monospace}
+  .recv-row{display:flex;gap:8px;margin-bottom:8px;align-items:center}
+  .recv-row input.code{flex:1.4;text-transform:uppercase}
+  .recv-row input.code::placeholder{text-transform:none}
+  .recv-row input.qty{flex:1;min-width:70px}
+  .recv-row .del{
+    flex:0 0 38px;height:40px;border:none;border-radius:10px;background:#fbecea;color:var(--danger);
+    font-size:1.05rem;cursor:pointer;
+  }
+  .btn{
+    display:inline-flex;align-items:center;justify-content:center;gap:7px;
+    border:none;border-radius:11px;padding:11px 16px;font:inherit;font-size:.9rem;font-weight:700;
+    cursor:pointer;transition:transform .05s,filter .15s;
+  }
+  .btn:active{transform:scale(.97)}
+  .btn-green{background:var(--leaf);color:#fff}
+  .btn-yellow{background:var(--lemon);color:#3d3000}
+  .btn-ghost{background:var(--chip);color:var(--leaf-dark)}
+  .btn-danger{background:#fbecea;color:var(--danger)}
+  .btn-block{width:100%;margin-top:12px}
+  .btn-sm{padding:7px 11px;font-size:.78rem;border-radius:9px}
+  .totline{
+    margin-top:10px;background:var(--chip);border-radius:10px;padding:9px 12px;
+    font-size:.86rem;font-weight:700;color:var(--leaf-dark);display:flex;justify-content:space-between;
+  }
+  /* ---------- Entry list ---------- */
+  .entry-item{
+    display:flex;align-items:flex-start;gap:10px;padding:11px 4px;border-bottom:1px solid var(--line);
+  }
+  .entry-item:last-child{border-bottom:none}
+  .entry-sno{
+    flex:0 0 26px;height:26px;border-radius:50%;background:var(--chip);color:var(--leaf-dark);
+    font-size:.74rem;font-weight:700;display:flex;align-items:center;justify-content:center;margin-top:2px;
+  }
+  .entry-mid{flex:1;min-width:0}
+  .entry-name{font-weight:700;font-size:.92rem}
+  .entry-name b{color:var(--leaf);font-weight:800}
+  .chips{display:flex;flex-wrap:wrap;gap:5px;margin-top:5px}
+  .chip{background:var(--chip);border-radius:999px;padding:2px 9px;font-size:.72rem;font-weight:600;color:var(--leaf-dark)}
+  .entry-acts{display:flex;gap:6px}
+  .icon-btn{border:none;background:var(--chip);border-radius:9px;width:34px;height:34px;font-size:.95rem;cursor:pointer}
+  .icon-btn.red{background:#fbecea}
+  /* ---------- Tables ---------- */
+  .tbl-wrap{overflow-x:auto;border-radius:10px;border:1px solid var(--line)}
+  table{width:100%;border-collapse:collapse;font-size:.84rem;min-width:340px}
+  th,td{padding:9px 10px;text-align:left;border-bottom:1px solid var(--line);vertical-align:top}
+  th{background:#eef2e3;color:var(--leaf-dark);font-size:.72rem;text-transform:uppercase;letter-spacing:.4px;white-space:nowrap}
+  td.num,th.num{text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums}
+  tr:last-child td{border-bottom:none}
+  tfoot td{background:#fdf6d8;font-weight:800;border-top:2px solid var(--lemon)}
+  .money{color:var(--leaf-dark);font-weight:700}
+  .brk{font-size:.72rem;color:var(--muted);font-weight:400;margin-top:3px;line-height:1.5}
+  /* ---------- Stat tiles ---------- */
+  .stats{display:grid;grid-template-columns:repeat(3,1fr);gap:9px;margin-bottom:14px}
+  .stat{background:var(--card);border-radius:12px;box-shadow:var(--shadow);padding:11px 8px;text-align:center}
+  .stat .v{font-size:1.22rem;font-weight:800;color:var(--leaf-dark)}
+  .stat .l{font-size:.64rem;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.4px;margin-top:2px}
+  /* ---------- Export bar ---------- */
+  .exports{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:14px}
+  .exports .btn{padding:10px 4px;font-size:.72rem;flex-direction:column;gap:3px}
+  .exports .btn .ico{font-size:1.15rem}
+  .empty{
+    text-align:center;color:var(--muted);padding:26px 10px;font-size:.86rem;line-height:1.6;
+  }
+  .empty .big{font-size:2rem;display:block;margin-bottom:6px}
+  /* ---------- Toast ---------- */
+  #toast{
+    position:fixed;left:50%;bottom:96px;transform:translateX(-50%) translateY(20px);
+    background:#243318;color:#fff;padding:10px 18px;border-radius:999px;font-size:.82rem;font-weight:600;
+    opacity:0;pointer-events:none;transition:all .25s;z-index:60;max-width:88vw;text-align:center;
+  }
+  #toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+  /* ---------- Offscreen report for exports ---------- */
+  #reportStage{position:absolute;left:-9999px;top:0}
+  #report{
+    width:760px;background:#ffffff;color:#1d2510;padding:32px;
+    font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+  }
+  #report table{min-width:0;font-size:.88rem}
+  #report .rep-foot{margin-top:26px;font-size:.75rem;color:var(--muted);text-align:center;border-top:1px solid var(--line);padding-top:10px}
+  .repband{
+    background:linear-gradient(135deg,#3e7c2b,#2d5c1f);color:#fff;border-radius:16px;
+    padding:22px 26px;display:flex;justify-content:space-between;align-items:center;
+    margin-bottom:18px;border-bottom:5px solid var(--lemon);
+  }
+  .repband.gold{background:linear-gradient(135deg,#c99a00,#9a7400);border-bottom-color:#3e7c2b}
+  .repband h1{font-size:1.32rem;letter-spacing:.2px}
+  .repband .sub{font-size:.8rem;opacity:.9;margin-top:4px;font-weight:500}
+  .repband .datebox{background:rgba(255,255,255,.16);padding:9px 16px;border-radius:12px;font-weight:800;font-size:1.02rem;text-align:center;white-space:nowrap}
+  .repband .datebox small{display:block;font-size:.62rem;font-weight:600;opacity:.85;letter-spacing:.6px}
+  .repstats{display:flex;gap:12px;margin-bottom:18px}
+  .repstat{flex:1;background:#f4f7ec;border:1.5px solid #dfe6cf;border-radius:12px;padding:12px 8px;text-align:center}
+  .repstat .v{font-size:1.34rem;font-weight:800;color:var(--leaf-dark)}
+  .repstat .l{font-size:.64rem;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-top:2px}
+  .repstat.gold{background:#fdf6d8;border-color:#f0df9a}
+  .repstat.gold .v{color:#8a6d00}
+  #report .brk{font-size:.78rem}
+  #report td .rcode{font-size:1.02rem;font-weight:800;color:var(--leaf-dark)}
+  .collbox{display:inline-block;width:17px;height:17px;border:2px solid #a6b193;border-radius:4px;vertical-align:middle}
+  /* ---------- Delivery challan (non-financial) ---------- */
+  .ch-wrap{border:2.5px solid var(--leaf);border-radius:16px;padding:28px 32px;background:#fff}
+  .ch-top{display:flex;justify-content:space-between;align-items:flex-start;border-bottom:3px solid var(--lemon);padding-bottom:16px;margin-bottom:18px}
+  .ch-top h1{font-size:1.42rem;color:var(--leaf-dark);letter-spacing:.3px}
+  .ch-top .sub{font-size:.78rem;color:var(--muted);margin-top:4px;font-weight:600}
+  .ch-meta{text-align:right;font-size:.82rem;line-height:1.7}
+  .ch-meta b{color:var(--leaf-dark)}
+  .ch-to{display:flex;align-items:center;gap:18px;background:#f4f7ec;border:1.5px solid #dfe6cf;border-radius:14px;padding:16px 22px;margin-bottom:18px}
+  .ch-to .lbl{font-size:.68rem;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.6px}
+  .ch-to .who{font-size:1.7rem;font-weight:800;color:var(--leaf-dark)}
+  .ch-to .bags{margin-left:auto;text-align:center;background:var(--lemon);border-radius:12px;padding:10px 20px}
+  .ch-to .bags .n{font-size:1.7rem;font-weight:800;color:#3d3000;line-height:1.1}
+  .ch-to .bags .t{font-size:.64rem;font-weight:700;color:#6b5600;text-transform:uppercase;letter-spacing:.5px}
+  .ch-line{font-size:.92rem;margin-bottom:12px}
+  .ch-sign{display:flex;justify-content:space-between;gap:30px;margin-top:56px}
+  .ch-sign div{flex:1;border-top:1.5px solid #9aa58c;padding-top:8px;text-align:center;font-size:.78rem;font-weight:600;color:var(--muted)}
+  .ch-note{margin-top:22px;font-size:.72rem;color:var(--muted);text-align:center;font-style:italic}
+  /* challan list in UI */
+  .chl-row{display:flex;align-items:center;gap:10px;padding:10px 4px;border-bottom:1px solid var(--line)}
+  .chl-row:last-child{border-bottom:none}
+  .chl-row .who{flex:1;font-weight:700;font-size:.9rem}
+  .chl-row .who small{display:block;font-weight:500;color:var(--muted);font-size:.72rem}
+  details.paste{margin-top:14px;border-top:1px dashed var(--line);padding-top:12px}
+  details.paste summary{cursor:pointer;font-size:.84rem;font-weight:700;color:var(--leaf-dark);user-select:none}
+  .filerow{display:flex;gap:8px;margin-top:10px;flex-wrap:wrap}
+  .rate-row{display:flex;align-items:center;gap:10px}
+  .rate-row input{max-width:130px}
+  @media (max-width:420px){
+    .exports{grid-template-columns:repeat(2,1fr)}
+    .brand small{display:none}
+  }
+  @media print{
+    header,nav.tabs,.exports,.no-print{display:none !important}
+    body{padding:0;background:#fff}
+    .card{box-shadow:none;border:1px solid #ddd}
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="head-row">
+    <div class="brand">🍋 Lemon Trip Sheet<small>Mahindra Veero &middot; Daily loads &amp; deliveries</small></div>
+    <div class="date-wrap">📅 <input type="date" id="curDate"></div>
+  </div>
+</header>
+
+<main>
+  <!-- ============ TAB: ENTRY ============ -->
+  <section class="tab-page active" id="page-entry">
+    <div class="card">
+      <h2 id="formTitle">✏️ New Load Entry</h2>
+      <label class="fld">Seller / Shop Name (loading point)</label>
+      <input type="text" id="inName" placeholder="e.g. Murali" list="nameList" autocomplete="off">
+      <datalist id="nameList"></datalist>
+
+      <label class="fld">Receiver-wise Split (who gets how many bags)</label>
+      <div id="recvRows"></div>
+      <button class="btn btn-ghost btn-sm" id="addRecvBtn" type="button">＋ Add receiver</button>
+      <datalist id="recvList"></datalist>
+
+      <div class="totline"><span>Total bags from this seller</span><span id="formTotal">0</span></div>
+      <button class="btn btn-green btn-block" id="saveBtn" type="button">💾 Save Entry</button>
+      <button class="btn btn-ghost btn-block" id="cancelEditBtn" type="button" style="display:none">✖ Cancel Edit</button>
+
+      <details class="paste">
+        <summary>📋 Bulk paste (WhatsApp list or CSV)</summary>
+        <p class="hint" style="margin-top:8px">
+          Paste lines like <b>Murali - 14 - UR-5, SR-5, NLC-4</b> or CSV like
+          <b>3,Murali,14,"UR (5), SR (5), NLC (4)"</b> — one seller per line. Totals like 6+3 are understood.
+        </p>
+        <textarea id="pasteBox" placeholder="1. KRR - 10 - BLC-10&#10;2. Durai - 4 - VV-2, LB-2&#10;3. Murali - 14 - UR-5, SR-5, NLC-4"></textarea>
+        <button class="btn btn-yellow btn-block" id="importBtn" type="button">⚡ Import lines into today</button>
+      </details>
+    </div>
+
+    <div class="card">
+      <h2>📄 Entries for <span id="entriesDate"></span></h2>
+      <div id="entryList"></div>
+    </div>
+  </section>
+
+  <!-- ============ TAB: TRIP SHEET ============ -->
+  <section class="tab-page" id="page-trip">
+    <div class="stats">
+      <div class="stat"><div class="v" id="stSellers">0</div><div class="l">Sellers</div></div>
+      <div class="stat"><div class="v" id="stBags">0</div><div class="l">Total Bags</div></div>
+      <div class="stat"><div class="v" id="stAmount">₹0</div><div class="l">To Collect</div></div>
+    </div>
+    <div class="exports">
+      <button class="btn btn-green" onclick="exportPDF('loading')"><span class="ico">📄</span>Loading PDF</button>
+      <button class="btn btn-yellow" onclick="exportImage('loading')"><span class="ico">🖼️</span>Image</button>
+      <button class="btn btn-ghost" onclick="exportExcel()"><span class="ico">📊</span>Excel</button>
+      <button class="btn" style="background:#25D366;color:#fff" onclick="shareWhatsApp('loading')"><span class="ico">💬</span>WhatsApp</button>
+    </div>
+    <div class="card">
+      <h2>🚚 Trip Sheet — Seller-wise (<span id="tripDate"></span>)</h2>
+      <div id="tripTable"></div>
+    </div>
+  </section>
+
+  <!-- ============ TAB: RECEIVERS ============ -->
+  <section class="tab-page" id="page-recv">
+    <div class="exports">
+      <button class="btn btn-green" onclick="exportPDF('delivery')"><span class="ico">📄</span>Collection PDF</button>
+      <button class="btn btn-yellow" onclick="exportImage('delivery')"><span class="ico">🖼️</span>Image</button>
+      <button class="btn btn-ghost" onclick="exportExcel()"><span class="ico">📊</span>Excel</button>
+      <button class="btn" style="background:#25D366;color:#fff" onclick="shareWhatsApp('delivery')"><span class="ico">💬</span>WhatsApp</button>
+    </div>
+    <div class="card">
+      <h2>📦 Delivery &amp; Collection — Receiver-wise (<span id="recvDate"></span>)</h2>
+      <p class="hint" style="margin-bottom:10px">Collection = bags × ₹<span id="rateShow">250</span> per bag.</p>
+      <div id="recvTable"></div>
+    </div>
+    <div class="card">
+      <h2>🧾 Delivery Challans (goods only — no money)</h2>
+      <p class="hint">One challan per receiver: total bags delivered + which sellers they came from. Rates and amounts are never printed on a challan.</p>
+      <button class="btn btn-green btn-block" onclick="exportAllChallans()">📄 All challans — one PDF (1 page per receiver)</button>
+      <button class="btn btn-yellow btn-block" onclick="exportAllChallanImages()">🗂️ All challans — images in one ZIP</button>
+      <div id="challanList" style="margin-top:8px"></div>
+    </div>
+  </section>
+
+  <!-- ============ TAB: BACKUP ============ -->
+  <section class="tab-page" id="page-backup">
+    <div class="card">
+      <h2>📲 Install as App</h2>
+      <p class="hint">Install this on the home screen to use it like a normal app — full screen, works offline, no browser bar. Needs the app to be opened from its web address (https), not from a WhatsApp file.</p>
+      <button class="btn btn-green btn-block" id="installBtn" style="display:none" onclick="installApp()">📲 Install Lemon Trip Sheet</button>
+      <p class="hint" id="installHint" style="margin-top:8px">If no install button appears: open in Chrome → menu (⋮) → <b>Add to Home screen</b>.</p>
+    </div>
+    <div class="card">
+      <h2>⚙️ Settings</h2>
+      <label class="fld">Rate per bag (₹) — collected from each receiver</label>
+      <div class="rate-row">
+        <input type="number" id="rateInput" min="0" step="1">
+        <button class="btn btn-green btn-sm" onclick="saveRate()">Save rate</button>
+      </div>
+    </div>
+    <div class="card">
+      <h2>🛟 Backup &amp; Restore</h2>
+      <p class="hint">All data lives only in this browser. Take a backup file regularly and keep it in WhatsApp/Drive. Restoring merges day-by-day (restored file wins for the same date).</p>
+      <div class="filerow">
+        <button class="btn btn-green" onclick="backupJSON()">⬇️ Download backup (JSON)</button>
+        <button class="btn btn-yellow" onclick="document.getElementById('restoreFile').click()">⬆️ Restore from file</button>
+        <input type="file" id="restoreFile" accept=".json,application/json" style="display:none">
+      </div>
+    </div>
+    <div class="card">
+      <h2>🗓️ Saved Days</h2>
+      <div id="daysList"></div>
+    </div>
+    <div class="card">
+      <h2>⚠️ Danger Zone</h2>
+      <div class="filerow">
+        <button class="btn btn-danger" onclick="clearDay()">🧹 Clear selected day</button>
+        <button class="btn btn-danger" onclick="clearAll()">🗑️ Erase ALL data</button>
+      </div>
+    </div>
+  </section>
+</main>
+
+<!-- Bottom tab bar -->
+<nav class="tabs">
+  <button data-tab="entry" class="active"><span class="ico">✏️</span>Entry</button>
+  <button data-tab="trip"><span class="ico">🚚</span>Trip Sheet</button>
+  <button data-tab="recv"><span class="ico">📦</span>Receivers</button>
+  <button data-tab="backup"><span class="ico">🛟</span>Backup</button>
+</nav>
+
+<div id="toast"></div>
+
+<!-- Offscreen report used for PDF / image export -->
+<div id="reportStage"><div id="report"></div></div>
+
+<script>
+'use strict';
+/* ================= State ================= */
+const LS_KEY = 'lemonTripSheet_v1';
+let store = { rate: 250, days: {} };   // days: { 'YYYY-MM-DD': [ {name, receivers:[{code,qty}]} ] }
+let editIndex = -1;
+
+function load(){
+  try{
+    const raw = localStorage.getItem(LS_KEY);
+    if(raw){ const s = JSON.parse(raw); if(s && typeof s==='object'){ store = Object.assign({rate:250,days:{}}, s); } }
+  }catch(e){ console.warn('load failed', e); }
+  if(typeof store.rate !== 'number' || !(store.rate >= 0)) store.rate = 250;
+  if(!store.days || typeof store.days !== 'object') store.days = {};
+}
+function save(){ localStorage.setItem(LS_KEY, JSON.stringify(store)); }
+
+/* ================= Helpers ================= */
+const $ = id => document.getElementById(id);
+const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+function todayISO(){ const d=new Date(); return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); }
+function fmtDate(iso){ if(!iso) return ''; const [y,m,d]=iso.split('-'); return d+'-'+MONTHS[+m-1]+'-'+y; }
+function inr(n){ return '₹' + Number(n||0).toLocaleString('en-IN'); }
+function esc(s){ return String(s??'').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+function curDate(){ return $('curDate').value || todayISO(); }
+function dayEntries(){ return store.days[curDate()] || []; }
+function toast(msg){
+  const t=$('toast'); t.textContent=msg; t.classList.add('show');
+  clearTimeout(t._h); t._h=setTimeout(()=>t.classList.remove('show'), 2400);
+}
+function entryTotal(e){ return e.receivers.reduce((s,r)=>s+(+r.qty||0),0); }
+function receiverAgg(entries){
+  const map = new Map();   // code -> {bags, sources:[{name,qty}]}
+  entries.forEach(e => e.receivers.forEach(r => {
+    const code = (r.code||'').toUpperCase();
+    const qty = +r.qty||0;
+    if(!code || !qty) return;
+    if(!map.has(code)) map.set(code, {bags:0, sources:[]});
+    const rec = map.get(code);
+    rec.bags += qty;
+    const src = rec.sources.find(s=>s.name===e.name);
+    if(src) src.qty += qty; else rec.sources.push({name:e.name, qty});
+  }));
+  return [...map.entries()].map(([code,v])=>({code, bags:v.bags, sources:v.sources}))
+    .sort((a,b)=>b.bags-a.bags || a.code.localeCompare(b.code));
+}
+function sourcesText(r){ return r.sources.map(s=>s.name+' ('+s.qty+')').join(', '); }
+
+/* ================= Tabs ================= */
+document.querySelectorAll('nav.tabs button').forEach(btn=>{
+  btn.addEventListener('click', ()=>{
+    document.querySelectorAll('nav.tabs button').forEach(b=>b.classList.toggle('active', b===btn));
+    document.querySelectorAll('.tab-page').forEach(p=>p.classList.toggle('active', p.id==='page-'+btn.dataset.tab));
+    window.scrollTo({top:0});
+  });
+});
+
+/* ================= Entry form ================= */
+function recvRowHTML(code='', qty=''){
+  return `<div class="recv-row">
+    <input class="code" type="text" placeholder="Receiver (e.g. AR)" list="recvList" value="${esc(code)}" autocomplete="off">
+    <input class="qty" type="number" placeholder="Bags" min="0" inputmode="numeric" value="${esc(qty)}">
+    <button class="del" type="button" title="Remove">✕</button>
+  </div>`;
+}
+function addRecvRow(code='', qty=''){
+  $('recvRows').insertAdjacentHTML('beforeend', recvRowHTML(code, qty));
+}
+$('addRecvBtn').addEventListener('click', ()=>{ addRecvRow(); focusLastCode(); });
+function focusLastCode(){
+  const rows=$('recvRows').querySelectorAll('.recv-row .code');
+  if(rows.length) rows[rows.length-1].focus();
+}
+$('recvRows').addEventListener('click', e=>{
+  if(e.target.classList.contains('del')){
+    e.target.closest('.recv-row').remove();
+    if(!$('recvRows').children.length) addRecvRow();
+    updateFormTotal();
+  }
+});
+$('recvRows').addEventListener('input', updateFormTotal);
+function readForm(){
+  const name = $('inName').value.trim();
+  const receivers = [];
+  $('recvRows').querySelectorAll('.recv-row').forEach(row=>{
+    const code = row.querySelector('.code').value.trim().toUpperCase();
+    const qty = +row.querySelector('.qty').value || 0;
+    if(code && qty>0) receivers.push({code, qty});
+  });
+  return {name, receivers};
+}
+function updateFormTotal(){
+  $('formTotal').textContent = readForm().receivers.reduce((s,r)=>s+r.qty,0);
+}
+function resetForm(){
+  editIndex = -1;
+  $('inName').value='';
+  $('recvRows').innerHTML='';
+  addRecvRow();
+  updateFormTotal();
+  $('formTitle').textContent='✏️ New Load Entry';
+  $('saveBtn').textContent='💾 Save Entry';
+  $('cancelEditBtn').style.display='none';
+}
+$('cancelEditBtn').addEventListener('click', resetForm);
+$('saveBtn').addEventListener('click', ()=>{
+  const e = readForm();
+  if(!e.name){ toast('Enter the seller / shop name'); $('inName').focus(); return; }
+  if(!e.receivers.length){ toast('Add at least one receiver with bags'); return; }
+  const d = curDate();
+  if(!store.days[d]) store.days[d]=[];
+  if(editIndex>=0){ store.days[d][editIndex]=e; toast('Entry updated ✔'); }
+  else { store.days[d].push(e); toast(e.name+' saved — '+entryTotal(e)+' bags ✔'); }
+  save(); resetForm(); renderAll();
+});
+
+function editEntry(i){
+  const e = dayEntries()[i]; if(!e) return;
+  editIndex = i;
+  $('inName').value = e.name;
+  $('recvRows').innerHTML='';
+  e.receivers.forEach(r=>addRecvRow(r.code, r.qty));
+  updateFormTotal();
+  $('formTitle').textContent='✏️ Edit Entry #'+(i+1);
+  $('saveBtn').textContent='💾 Update Entry';
+  $('cancelEditBtn').style.display='block';
+  document.querySelector('nav.tabs button[data-tab=entry]').click();
+  window.scrollTo({top:0,behavior:'smooth'});
+}
+function deleteEntry(i){
+  const e = dayEntries()[i]; if(!e) return;
+  if(!confirm('Delete entry "'+e.name+'" ('+entryTotal(e)+' bags)?')) return;
+  store.days[curDate()].splice(i,1);
+  if(!store.days[curDate()].length) delete store.days[curDate()];
+  if(editIndex===i) resetForm();
+  save(); renderAll(); toast('Entry deleted');
+}
+
+/* ================= Bulk paste import ================= */
+function splitCSVLine(line){
+  const out=[]; let cur='', inQ=false;
+  for(let i=0;i<line.length;i++){
+    const c=line[i];
+    if(c==='"'){ inQ=!inQ; continue; }
+    if(c===',' && !inQ){ out.push(cur); cur=''; continue; }
+    cur+=c;
+  }
+  out.push(cur);
+  return out.map(s=>s.trim());
+}
+function sumPlus(s){ return String(s).split('+').reduce((t,x)=>t+(parseInt(x,10)||0),0); }
+function parseReceivers(str){
+  // chunks like "UR-5" / "BLG (10)" / "BLC-6+1"
+  const out=[];
+  String(str).split(',').forEach(chunk=>{
+    const m = chunk.trim().match(/^"?\s*([A-Za-z][A-Za-z .]*?)\s*[-(]\s*([\d+\s]+)\)?\s*"?$/);
+    if(m){
+      const qty = sumPlus(m[2].replace(/\s+/g,''));
+      if(qty>0) out.push({code:m[1].trim().toUpperCase(), qty});
+    }
+  });
+  return out;
+}
+function parseBulk(text){
+  const entries=[], errors=[];
+  text.split(/\r?\n/).forEach(raw=>{
+    let line = raw.trim();
+    if(!line) return;
+    if(/s\.?\s*no/i.test(line) && /name/i.test(line)) return;          // header row
+    line = line.replace(/^\s*\d+\s*[.)]?\s*/,'');                      // strip "1." / "1)"
+    let name='', recvStr='';
+    if(line.split(' - ').length>=3){                                   // list style: Name - total - splits
+      const parts=line.split(' - ');
+      name=parts[0].trim();
+      recvStr=parts.slice(2).join(' - ');
+    } else if(line.includes(',')){                                     // CSV: [name, total, "splits"] (sno already stripped)
+      const cells=splitCSVLine(raw.trim());
+      if(/^\d+$/.test(cells[0])) cells.shift();                        // drop S.No cell
+      name=(cells[0]||'').trim();
+      recvStr=cells.slice(2).join(', ');
+    } else { errors.push(raw); return; }
+    const receivers=parseReceivers(recvStr);
+    if(name && receivers.length) entries.push({name, receivers});
+    else errors.push(raw);
+  });
+  return {entries, errors};
+}
+$('importBtn').addEventListener('click', ()=>{
+  const txt=$('pasteBox').value;
+  if(!txt.trim()){ toast('Paste some lines first'); return; }
+  const {entries, errors}=parseBulk(txt);
+  if(!entries.length){ toast('Could not understand any line 😕'); return; }
+  const d=curDate();
+  if(!store.days[d]) store.days[d]=[];
+  store.days[d].push(...entries);
+  save(); renderAll();
+  $('pasteBox').value = errors.join('\n');
+  toast('Imported '+entries.length+' entr'+(entries.length===1?'y':'ies')+(errors.length? ' · '+errors.length+' line(s) left in box':' ✔'));
+});
+
+/* ================= Rendering ================= */
+function renderDatalists(){
+  const names=new Set(), codes=new Set();
+  Object.values(store.days).forEach(list=>list.forEach(e=>{
+    names.add(e.name);
+    e.receivers.forEach(r=>codes.add(r.code.toUpperCase()));
+  }));
+  $('nameList').innerHTML=[...names].sort().map(n=>`<option value="${esc(n)}">`).join('');
+  $('recvList').innerHTML=[...codes].sort().map(c=>`<option value="${esc(c)}">`).join('');
+}
+function renderEntries(){
+  const list=dayEntries(), box=$('entryList');
+  $('entriesDate').textContent=fmtDate(curDate());
+  if(!list.length){
+    box.innerHTML='<div class="empty"><span class="big">🍋</span>No entries yet for this day.<br>Add a load above or use bulk paste.</div>';
+    return;
+  }
+  box.innerHTML=list.map((e,i)=>`
+    <div class="entry-item">
+      <div class="entry-sno">${i+1}</div>
+      <div class="entry-mid">
+        <div class="entry-name">${esc(e.name)} — <b>${entryTotal(e)} bags</b></div>
+        <div class="chips">${e.receivers.map(r=>`<span class="chip">${esc(r.code)} · ${r.qty}</span>`).join('')}</div>
+      </div>
+      <div class="entry-acts">
+        <button class="icon-btn" onclick="editEntry(${i})" title="Edit">✏️</button>
+        <button class="icon-btn red" onclick="deleteEntry(${i})" title="Delete">🗑️</button>
+      </div>
+    </div>`).join('');
+}
+function tripTableHTML(list, forReport){
+  if(!list.length) return '<div class="empty"><span class="big">🚚</span>Nothing loaded on this day yet.</div>';
+  const total=list.reduce((s,e)=>s+entryTotal(e),0);
+  return `<div class="tbl-wrap"><table>
+    <thead><tr><th>#</th><th>Seller / Shop</th><th class="num">Bags</th><th>Receiver-wise Split</th></tr></thead>
+    <tbody>${list.map((e,i)=>`<tr>
+      <td>${i+1}</td><td><b>${esc(e.name)}</b></td>
+      <td class="num"><b>${entryTotal(e)}</b></td>
+      <td>${e.receivers.map(r=>esc(r.code)+' ('+r.qty+')').join(', ')}</td>
+    </tr>`).join('')}</tbody>
+    <tfoot><tr><td></td><td>TOTAL — ${list.length} sellers</td><td class="num">${total}</td><td></td></tr></tfoot>
+  </table></div>`;
+}
+function recvTableHTML(agg){
+  if(!agg.length) return '<div class="empty"><span class="big">📦</span>No deliveries to show yet.</div>';
+  const bags=agg.reduce((s,r)=>s+r.bags,0);
+  return `<div class="tbl-wrap"><table>
+    <thead><tr><th>#</th><th>Receiver &amp; From Sellers</th><th class="num">Bags</th><th class="num">Rate</th><th class="num">Amount to Collect</th></tr></thead>
+    <tbody>${agg.map((r,i)=>`<tr>
+      <td>${i+1}</td>
+      <td><b>${esc(r.code)}</b><div class="brk">from ${esc(sourcesText(r))}</div></td>
+      <td class="num"><b>${r.bags}</b></td>
+      <td class="num">${inr(store.rate)}</td>
+      <td class="num money">${inr(r.bags*store.rate)}</td>
+    </tr>`).join('')}</tbody>
+    <tfoot><tr><td></td><td>TOTAL — ${agg.length} receivers</td><td class="num">${bags}</td><td></td><td class="num">${inr(bags*store.rate)}</td></tr></tfoot>
+  </table></div>`;
+}
+function renderDashboards(){
+  const list=dayEntries(), agg=receiverAgg(list);
+  const bags=list.reduce((s,e)=>s+entryTotal(e),0);
+  $('tripDate').textContent=fmtDate(curDate());
+  $('recvDate').textContent=fmtDate(curDate());
+  $('rateShow').textContent=store.rate;
+  $('stSellers').textContent=list.length;
+  $('stBags').textContent=bags;
+  $('stAmount').textContent=inr(bags*store.rate);
+  $('tripTable').innerHTML=tripTableHTML(list);
+  $('recvTable').innerHTML=recvTableHTML(agg);
+  renderChallanList(agg);
+}
+function renderChallanList(agg){
+  const box=$('challanList');
+  if(!agg.length){ box.innerHTML='<div class="empty">Challans appear here once the day has entries.</div>'; return; }
+  box.innerHTML=agg.map(r=>`
+    <div class="chl-row">
+      <div class="who">🧾 ${esc(r.code)}<small>${r.bags} bags · from ${esc(sourcesText(r))}</small></div>
+      <button class="btn btn-ghost btn-sm" data-ch-pdf="${esc(r.code)}">PDF</button>
+      <button class="btn btn-yellow btn-sm" data-ch-img="${esc(r.code)}">Image</button>
+    </div>`).join('');
+}
+$('challanList').addEventListener('click', e=>{
+  const b=e.target.closest('button'); if(!b) return;
+  if(b.dataset.chPdf!==undefined) exportChallanPDF(b.dataset.chPdf);
+  else if(b.dataset.chImg!==undefined) exportChallanImage(b.dataset.chImg);
+});
+function renderDays(){
+  const days=Object.keys(store.days).sort().reverse();
+  const box=$('daysList');
+  if(!days.length){ box.innerHTML='<div class="empty">No saved days yet.</div>'; return; }
+  box.innerHTML=days.map(d=>{
+    const list=store.days[d], bags=list.reduce((s,e)=>s+entryTotal(e),0);
+    return `<div class="entry-item" style="cursor:pointer" onclick="gotoDay('${d}')">
+      <div class="entry-mid">
+        <div class="entry-name">📅 ${fmtDate(d)}</div>
+        <div class="chips"><span class="chip">${list.length} sellers</span><span class="chip">${bags} bags</span><span class="chip">${inr(bags*store.rate)}</span></div>
+      </div>
+      <div class="entry-acts"><span style="align-self:center;color:var(--muted)">›</span></div>
+    </div>`;
+  }).join('');
+}
+function gotoDay(d){
+  $('curDate').value=d;
+  renderAll();
+  document.querySelector('nav.tabs button[data-tab=trip]').click();
+}
+function renderAll(){
+  renderEntries(); renderDashboards(); renderDatalists(); renderDays();
+}
+
+/* ================= Report DOMs (for PDF / image) ================= */
+function repFoot(){ return `<div class="rep-foot">Generated on ${fmtDate(todayISO())} · Lemon Trip Sheet app</div>`; }
+function buildLoadingReport(){
+  const list=dayEntries();
+  const bags=list.reduce((s,e)=>s+entryTotal(e),0);
+  $('report').innerHTML=`
+    <div class="repband">
+      <div><h1>🍋 Loading Report</h1><div class="sub">Seller-wise loading summary · Mahindra Veero</div></div>
+      <div class="datebox"><small>TRIP DATE</small>${fmtDate(curDate())}</div>
+    </div>
+    <div class="repstats">
+      <div class="repstat"><div class="v">${list.length}</div><div class="l">Sellers</div></div>
+      <div class="repstat"><div class="v">${bags}</div><div class="l">Bags Loaded</div></div>
+    </div>
+    ${tripTableHTML(list)}
+    ${repFoot()}`;
+  return $('report');
+}
+function buildDeliveryReport(){
+  const list=dayEntries(), agg=receiverAgg(list);
+  const bags=agg.reduce((s,r)=>s+r.bags,0);
+  $('report').innerHTML=`
+    <div class="repband gold">
+      <div><h1>🍋 Delivery &amp; Collection Report</h1><div class="sub">Receiver-wise delivery · cash to collect @ ₹${store.rate} per bag</div></div>
+      <div class="datebox"><small>TRIP DATE</small>${fmtDate(curDate())}</div>
+    </div>
+    <div class="repstats">
+      <div class="repstat"><div class="v">${agg.length}</div><div class="l">Receivers</div></div>
+      <div class="repstat"><div class="v">${bags}</div><div class="l">Bags Delivered</div></div>
+      <div class="repstat gold"><div class="v">${inr(bags*store.rate)}</div><div class="l">Total to Collect</div></div>
+    </div>
+    <div class="tbl-wrap"><table>
+      <thead><tr><th>#</th><th>Receiver — From Which Seller</th><th class="num">Bags</th><th class="num">Amount to Collect</th><th style="text-align:center">Paid ✓</th></tr></thead>
+      <tbody>${agg.map((r,i)=>`<tr>
+        <td>${i+1}</td>
+        <td><span class="rcode">${esc(r.code)}</span><div class="brk">${r.sources.map(s=>esc(s.name)+' ('+s.qty+')').join(' &nbsp;·&nbsp; ')}</div></td>
+        <td class="num"><b>${r.bags}</b></td>
+        <td class="num money">${inr(r.bags*store.rate)}</td>
+        <td style="text-align:center"><span class="collbox"></span></td>
+      </tr>`).join('')}</tbody>
+      <tfoot><tr><td></td><td>TOTAL — ${agg.length} receivers</td><td class="num">${bags}</td><td class="num">${inr(bags*store.rate)}</td><td></td></tr></tfoot>
+    </table></div>
+    ${repFoot()}`;
+  return $('report');
+}
+function buildReport(kind){ return kind==='delivery' ? buildDeliveryReport() : buildLoadingReport(); }
+function buildChallan(r, idx){
+  const no='DC-'+curDate().replace(/-/g,'')+'-'+String(idx+1).padStart(2,'0');
+  $('report').innerHTML=`
+    <div class="ch-wrap">
+      <div class="ch-top">
+        <div><h1>🍋 Delivery Challan</h1><div class="sub">Goods delivery confirmation · Mahindra Veero</div></div>
+        <div class="ch-meta">Challan No: <b>${no}</b><br>Date: <b>${fmtDate(curDate())}</b></div>
+      </div>
+      <div class="ch-to">
+        <div><div class="lbl">Delivered To</div><div class="who">${esc(r.code)}</div></div>
+        <div class="bags"><div class="n">${r.bags}</div><div class="t">Bags of Lemons</div></div>
+      </div>
+      <div class="ch-line">You have received these bags from:</div>
+      <div class="tbl-wrap"><table>
+        <thead><tr><th>#</th><th>From Seller / Shop</th><th class="num">Bags</th></tr></thead>
+        <tbody>${r.sources.map((s,i)=>`<tr><td>${i+1}</td><td><b>${esc(s.name)}</b></td><td class="num"><b>${s.qty}</b></td></tr>`).join('')}</tbody>
+        <tfoot><tr><td></td><td>TOTAL BAGS RECEIVED</td><td class="num">${r.bags}</td></tr></tfoot>
+      </table></div>
+      <div class="ch-sign"><div>Delivered by (sign)</div><div>Received by (sign)</div></div>
+      <div class="ch-note">This challan confirms physical delivery of goods only. It is not an invoice and contains no payment details.</div>
+    </div>`;
+  return $('report');
+}
+function libMissing(name){
+  toast('⚠ '+name+' needs internet the first time. Connect once and retry.');
+}
+function fileBase(kind){
+  return (kind==='delivery'?'CollectionReport_':'LoadingReport_')+fmtDate(curDate());
+}
+function hasData(){ if(!dayEntries().length){ toast('No entries on this day to export'); return false; } return true; }
+
+async function reportCanvas(kind){
+  const node=buildReport(kind);
+  const canvas=await html2canvas(node,{scale:2,backgroundColor:'#ffffff'});
+  freeReport();
+  return canvas;
+}
+function freeReport(){ $('report').innerHTML=''; }
+
+/* Robust share: on Android, navigator.share() sometimes never settles after
+   returning from WhatsApp, and every later share throws InvalidStateError —
+   the app looks frozen. Reset the in-flight flag whenever the app becomes
+   visible again, and fall back to a plain download if sharing is wedged. */
+let shareInFlight=false;
+document.addEventListener('visibilitychange', ()=>{ if(document.visibilityState==='visible') shareInFlight=false; });
+window.addEventListener('pageshow', e=>{ if(e.persisted){ shareInFlight=false; renderAll(); } });
+async function shareOrDownload(blob, name, mime){
+  const file=new File([blob], name, {type:mime});
+  if(!shareInFlight && navigator.canShare && navigator.canShare({files:[file]})){
+    shareInFlight=true;
+    try{ await navigator.share({files:[file], title:name}); shareInFlight=false; return; }
+    catch(e){ shareInFlight=false; if(e && e.name==='AbortError') return; }
+  }
+  downloadBlob(blob, name);
+  toast('Saved: '+name+' ✔');
+}
+function canvasBlob(canvas, type){ return new Promise(res=>canvas.toBlob(res, type)); }
+
+/* ================= Exports ================= */
+async function exportImage(kind){
+  if(!hasData()) return;
+  if(typeof html2canvas==='undefined') return libMissing('Image export');
+  toast('Preparing image…');
+  try{
+    const canvas=await reportCanvas(kind);
+    const blob=await canvasBlob(canvas,'image/png');
+    await shareOrDownload(blob, fileBase(kind)+'.png', 'image/png');
+  }catch(e){ console.error(e); toast('Image export failed'); }
+}
+async function exportPDF(kind){
+  if(!hasData()) return;
+  if(typeof html2canvas==='undefined' || typeof window.jspdf==='undefined') return libMissing('PDF export');
+  toast('Preparing PDF…');
+  try{
+    const canvas=await reportCanvas(kind);
+    const pdf=new window.jspdf.jsPDF({unit:'mm',format:'a4',orientation:'portrait'});
+    const pageW=210, pageH=297, margin=8;
+    const imgW=pageW-margin*2;
+    const imgH=canvas.height*imgW/canvas.width;
+    let y=0;
+    while(y < imgH){
+      if(y>0) pdf.addPage();
+      pdf.addImage(canvas.toDataURL('image/jpeg',0.94),'JPEG',margin,margin-y,imgW,imgH);
+      y += pageH - margin*2;
+    }
+    await shareOrDownload(pdf.output('blob'), fileBase(kind)+'.pdf', 'application/pdf');
+  }catch(e){ console.error(e); toast('PDF export failed'); }
+}
+function exportExcel(){
+  if(!hasData()) return;
+  if(typeof XLSX==='undefined') return libMissing('Excel export');
+  const list=dayEntries(), agg=receiverAgg(list);
+  const wb=XLSX.utils.book_new();
+  const s1=[['S.No','Seller / Shop','Total Bags','Receiver-wise Details']];
+  list.forEach((e,i)=>s1.push([i+1,e.name,entryTotal(e),e.receivers.map(r=>r.code+' ('+r.qty+')').join(', ')]));
+  s1.push(['','TOTAL',list.reduce((s,e)=>s+entryTotal(e),0),'']);
+  const ws1=XLSX.utils.aoa_to_sheet(s1);
+  ws1['!cols']=[{wch:6},{wch:24},{wch:11},{wch:42}];
+  XLSX.utils.book_append_sheet(wb,ws1,'Trip Sheet');
+  const s2=[['S.No','Receiver','From Sellers (breakdown)','Bags','Rate (Rs)','Amount to Collect (Rs)']];
+  agg.forEach((r,i)=>s2.push([i+1,r.code,sourcesText(r),r.bags,store.rate,r.bags*store.rate]));
+  const tb=agg.reduce((s,r)=>s+r.bags,0);
+  s2.push(['','TOTAL','',tb,'',tb*store.rate]);
+  const ws2=XLSX.utils.aoa_to_sheet(s2);
+  ws2['!cols']=[{wch:6},{wch:14},{wch:46},{wch:8},{wch:10},{wch:20}];
+  XLSX.utils.book_append_sheet(wb,ws2,'Receiver Summary');
+  XLSX.writeFile(wb, fileBase()+'.xlsx');
+  toast('Excel downloaded ✔');
+}
+/* ---------- Challan exports (non-financial) ---------- */
+async function challanCanvas(code){
+  const agg=receiverAgg(dayEntries());
+  const i=agg.findIndex(r=>r.code===code);
+  if(i<0) return null;
+  buildChallan(agg[i], i);
+  const canvas=await html2canvas($('report'),{scale:2,backgroundColor:'#ffffff'});
+  freeReport();
+  return canvas;
+}
+function sharePdfBlob(blob, name){ return shareOrDownload(blob, name, 'application/pdf'); }
+function challanFile(code){ return 'Challan_'+code.replace(/[^A-Za-z0-9]+/g,'')+'_'+fmtDate(curDate()); }
+async function exportChallanPDF(code){
+  if(!hasData()) return;
+  if(typeof html2canvas==='undefined' || typeof window.jspdf==='undefined') return libMissing('PDF export');
+  toast('Preparing challan…');
+  try{
+    const canvas=await challanCanvas(code);
+    if(!canvas) return;
+    const pdf=new window.jspdf.jsPDF({unit:'mm',format:'a4',orientation:'portrait'});
+    const imgW=194;
+    pdf.addImage(canvas.toDataURL('image/jpeg',0.94),'JPEG',8,10,imgW,canvas.height*imgW/canvas.width);
+    await sharePdfBlob(pdf.output('blob'), challanFile(code)+'.pdf');
+  }catch(e){ console.error(e); toast('Challan export failed'); }
+}
+async function exportChallanImage(code){
+  if(!hasData()) return;
+  if(typeof html2canvas==='undefined') return libMissing('Image export');
+  toast('Preparing challan image…');
+  try{
+    const canvas=await challanCanvas(code);
+    if(!canvas) return;
+    const blob=await canvasBlob(canvas,'image/png');
+    await shareOrDownload(blob, challanFile(code)+'.png', 'image/png');
+  }catch(e){ console.error(e); toast('Challan export failed'); }
+}
+async function exportAllChallans(){
+  if(!hasData()) return;
+  if(typeof html2canvas==='undefined' || typeof window.jspdf==='undefined') return libMissing('PDF export');
+  const agg=receiverAgg(dayEntries());
+  if(!agg.length){ toast('No receivers on this day'); return; }
+  toast('Preparing '+agg.length+' challans…');
+  try{
+    const pdf=new window.jspdf.jsPDF({unit:'mm',format:'a4',orientation:'portrait'});
+    const imgW=194;
+    for(let i=0;i<agg.length;i++){
+      buildChallan(agg[i], i);
+      const canvas=await html2canvas($('report'),{scale:2,backgroundColor:'#ffffff'});
+      if(i>0) pdf.addPage();
+      pdf.addImage(canvas.toDataURL('image/jpeg',0.94),'JPEG',8,10,imgW,canvas.height*imgW/canvas.width);
+    }
+    freeReport();
+    await sharePdfBlob(pdf.output('blob'), 'Challans_'+fmtDate(curDate())+'.pdf');
+  }catch(e){ console.error(e); toast('Challan export failed'); }
+}
+async function exportAllChallanImages(){
+  if(!hasData()) return;
+  if(typeof html2canvas==='undefined' || typeof JSZip==='undefined') return libMissing('ZIP export');
+  const agg=receiverAgg(dayEntries());
+  if(!agg.length){ toast('No receivers on this day'); return; }
+  toast('Preparing '+agg.length+' challan images…');
+  try{
+    const zip=new JSZip();
+    for(let i=0;i<agg.length;i++){
+      buildChallan(agg[i], i);
+      const canvas=await html2canvas($('report'),{scale:2,backgroundColor:'#ffffff'});
+      const blob=await canvasBlob(canvas,'image/png');
+      zip.file(challanFile(agg[i].code)+'.png', blob);
+    }
+    freeReport();
+    const zipBlob=await zip.generateAsync({type:'blob'});
+    await shareOrDownload(zipBlob, 'Challans_Images_'+fmtDate(curDate())+'.zip', 'application/zip');
+  }catch(e){ console.error(e); toast('ZIP export failed'); }
+}
+function downloadBlob(blob,name){
+  const a=document.createElement('a');
+  a.href=URL.createObjectURL(blob); a.download=name;
+  document.body.appendChild(a); a.click();
+  setTimeout(()=>{URL.revokeObjectURL(a.href); a.remove();},800);
+}
+function whatsAppText(kind){
+  const list=dayEntries(), agg=receiverAgg(list);
+  const bags=list.reduce((s,e)=>s+entryTotal(e),0);
+  const L=[];
+  if(kind==='delivery'){
+    L.push('🍋 *Delivery & Collection — '+fmtDate(curDate())+'*');
+    L.push('_₹'+store.rate+' per bag_');
+    L.push('');
+    agg.forEach(r=>{
+      L.push('*'+r.code+'*: '+r.bags+' bags = *₹'+(r.bags*store.rate).toLocaleString('en-IN')+'*');
+      L.push('   ↳ from '+r.sources.map(s=>s.name+'-'+s.qty).join(', '));
+    });
+    L.push('');
+    L.push('*Total: '+bags+' bags — collect ₹'+(bags*store.rate).toLocaleString('en-IN')+'*');
+  }else{
+    L.push('🍋 *Loading Report — '+fmtDate(curDate())+'*');
+    L.push('');
+    list.forEach((e,i)=>L.push((i+1)+'. '+e.name+' — '+entryTotal(e)+' ['+e.receivers.map(r=>r.code+'-'+r.qty).join(', ')+']'));
+    L.push('');
+    L.push('*Total loaded: '+bags+' bags ('+list.length+' sellers)*');
+  }
+  return L.join('\n');
+}
+function shareWhatsApp(kind){
+  if(!hasData()) return;
+  window.open('https://wa.me/?text='+encodeURIComponent(whatsAppText(kind)),'_blank');
+}
+
+/* ================= Settings / backup ================= */
+function saveRate(){
+  const v=+$('rateInput').value;
+  if(!(v>=0)){ toast('Enter a valid rate'); return; }
+  store.rate=v; save(); renderAll(); toast('Rate set to '+inr(v)+' per bag ✔');
+}
+function backupJSON(){
+  const blob=new Blob([JSON.stringify(store,null,2)],{type:'application/json'});
+  downloadBlob(blob,'LemonTripSheet_backup_'+fmtDate(todayISO())+'.json');
+  toast('Backup downloaded — keep it safe ✔');
+}
+$('restoreFile').addEventListener('change', ev=>{
+  const f=ev.target.files[0]; if(!f) return;
+  const rd=new FileReader();
+  rd.onload=()=>{
+    try{
+      const inc=JSON.parse(rd.result);
+      if(!inc || typeof inc!=='object' || !inc.days) throw new Error('bad');
+      const nDays=Object.keys(inc.days).length;
+      if(!confirm('Restore '+nDays+' day(s) from this backup? Same dates will be replaced by the backup.')) return;
+      Object.assign(store.days, inc.days);
+      if(typeof inc.rate==='number') store.rate=inc.rate;
+      save(); syncRateInput(); renderAll();
+      toast('Restored '+nDays+' day(s) ✔');
+    }catch(e){ toast('Not a valid backup file'); }
+    finally{ ev.target.value=''; }
+  };
+  rd.readAsText(f);
+});
+function clearDay(){
+  if(!dayEntries().length){ toast('This day is already empty'); return; }
+  if(!confirm('Delete all entries for '+fmtDate(curDate())+'?')) return;
+  delete store.days[curDate()];
+  save(); resetForm(); renderAll(); toast('Day cleared');
+}
+function clearAll(){
+  if(!confirm('Erase ALL data on this device? Take a backup first!')) return;
+  if(!confirm('Really erase everything? This cannot be undone.')) return;
+  store={rate:250,days:{}};
+  save(); syncRateInput(); resetForm(); renderAll(); toast('All data erased');
+}
+function syncRateInput(){ $('rateInput').value=store.rate; }
+
+/* ================= PWA: service worker + install prompt ================= */
+if('serviceWorker' in navigator && /^https?:$/.test(location.protocol)){
+  navigator.serviceWorker.register('sw.js').catch(e=>console.warn('SW registration failed', e));
+}
+let deferredInstall=null;
+window.addEventListener('beforeinstallprompt', e=>{
+  e.preventDefault();
+  deferredInstall=e;
+  $('installBtn').style.display='block';
+  $('installHint').style.display='none';
+});
+window.addEventListener('appinstalled', ()=>{
+  deferredInstall=null;
+  $('installBtn').style.display='none';
+  toast('App installed 🎉 Find it on your home screen');
+});
+async function installApp(){
+  if(!deferredInstall){ toast('Use Chrome menu (⋮) → Add to Home screen'); return; }
+  deferredInstall.prompt();
+  await deferredInstall.userChoice;
+  deferredInstall=null;
+  $('installBtn').style.display='none';
+}
+
+/* ================= Init ================= */
+load();
+$('curDate').value=todayISO();
+$('curDate').addEventListener('change', ()=>{ resetForm(); renderAll(); });
+syncRateInput();
+resetForm();
+renderAll();
+</script>
+</body>
+</html>
