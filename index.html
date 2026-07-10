@@ -1094,27 +1094,69 @@ function masterAdd(type){
 }
 function masterEdit(type,name){ editingMaster={type,name}; renderMasters(); }
 function masterCancel(){ editingMaster=null; renderMasters(); }
-function masterSave(type,name){
+function masterUsage(type,name){
+  let trips=0, pays=0;
+  Object.values(store.days).forEach(list=>list.forEach(e=>{
+    if(type==='sellers'){ if(e.name===name) trips++; }
+    else e.receivers.forEach(r=>{ if(r.code.toUpperCase()===name) trips++; });
+  }));
+  if(type==='receivers') pays=store.payments.filter(p=>p.code===name).length;
+  return {trips, pays, total:trips+pays};
+}
+function masterSave(type,oldName){
   const card=type==='sellers'?$('sellerMasters'):$('recvMasters');
-  store.masters[type][name]={
+  let newName=card.querySelector('.m-name').value.trim();
+  if(type==='receivers') newName=newName.toUpperCase();
+  if(!newName){ toast('Name cannot be empty'); return; }
+  const details={
     address:card.querySelector('.m-addr').value.trim(),
     phone:card.querySelector('.m-phone').value.trim()
   };
+  if(newName!==oldName){
+    if(allPartyNames(type).includes(newName)){ toast('"'+newName+'" already exists — pick a different name'); return; }
+    const u=masterUsage(type,oldName);
+    if(u.total){
+      const what=u.trips+' trip line(s)'+(u.pays?' and '+u.pays+' payment(s)':'');
+      if(!confirm('Rename "'+oldName+'" to "'+newName+'"?\n'+what+' will be updated to the new name.')) return;
+      Object.values(store.days).forEach(list=>list.forEach(e=>{
+        if(type==='sellers'){ if(e.name===oldName) e.name=newName; }
+        else e.receivers.forEach(r=>{ if(r.code.toUpperCase()===oldName) r.code=newName; });
+      }));
+      if(type==='receivers') store.payments.forEach(p=>{ if(p.code===oldName) p.code=newName; });
+    }
+    delete store.masters[type][oldName];
+  }
+  store.masters[type][newName]=details;
   editingMaster=null;
   save(); autoBackup(); renderAll();
-  toast(name+' saved ✔'+(store.autoBackup?' · backup ⬇':''));
+  toast(newName+' saved ✔'+(store.autoBackup?' · backup ⬇':''));
+}
+function masterDelete(type,name){
+  const u=masterUsage(type,name);
+  if(u.total){
+    const what=[u.trips?u.trips+' trip line(s)':'', u.pays?u.pays+' payment(s)':''].filter(Boolean).join(' and ');
+    toast('❌ Cannot delete "'+name+'" — used in '+what+'. Remove those first.');
+    return;
+  }
+  if(!confirm('Delete '+(type==='sellers'?'seller':'receiver')+' "'+name+'" from masters?')) return;
+  delete store.masters[type][name];
+  editingMaster=null;
+  save(); autoBackup(); renderAll();
+  toast('"'+name+'" deleted'+(store.autoBackup?' · backup ⬇':''));
 }
 function masterRowHTML(type,name){
   const m=store.masters[type][name]||{address:'',phone:''};
   if(editingMaster && editingMaster.type===type && editingMaster.name===name){
     return `<div class="chl-row" style="flex-wrap:wrap">
-      <div class="who" style="flex-basis:100%">✏️ ${esc(name)}</div>
+      <div class="who" style="flex-basis:100%">✏️ Editing: ${esc(name)}</div>
       <div style="flex-basis:100%;display:grid;gap:8px;margin-top:6px">
+        <input type="text" class="m-name" placeholder="Name${type==='receivers'?' / code':''}" value="${esc(name)}">
         <input type="text" class="m-addr" placeholder="Address / place" value="${esc(m.address)}">
         <input type="text" class="m-phone" placeholder="WhatsApp number (10 digits)" inputmode="tel" value="${esc(m.phone)}">
         <div style="display:flex;gap:8px">
           <button class="btn btn-green btn-sm" data-msave="${esc(name)}">💾 Save</button>
           <button class="btn btn-ghost btn-sm" data-mcancel="1">Cancel</button>
+          <button class="btn btn-danger btn-sm" style="margin-left:auto" data-mdel="${esc(name)}">🗑️ Delete</button>
         </div>
       </div>
     </div>`;
@@ -1136,6 +1178,7 @@ function renderMasters(){
     const b=e.target.closest('button'); if(!b) return;
     if(b.dataset.medit!==undefined) masterEdit(type, b.dataset.medit);
     else if(b.dataset.msave!==undefined) masterSave(type, b.dataset.msave);
+    else if(b.dataset.mdel!==undefined) masterDelete(type, b.dataset.mdel);
     else if(b.dataset.mcancel!==undefined) masterCancel();
   });
 });
