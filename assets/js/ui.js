@@ -1118,6 +1118,7 @@ if ($('saveSignBtn')) {
 }
 
 /* ================= Initialization ================= */
+load();
 $('curDate').value = todayISO();
 $('payDate').value = todayISO();
 $('curDate').addEventListener('change', () => { resetForm(); renderAll(); });
