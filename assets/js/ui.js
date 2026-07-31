@@ -17,15 +17,26 @@ document.querySelectorAll('nav.tabs button').forEach(btn => {
 });
 
 /* ================= Entry form ================= */
-function recvRowHTML(code = '', qty = '') {
-    return `<div class="recv-row">
-    <input class="code" type="text" placeholder="Receiver (e.g. AR)" list="recvList" value="${esc(code)}" autocomplete="off">
-    <input class="qty" type="number" placeholder="Bags" min="0" inputmode="numeric" value="${esc(qty)}">
-    <button class="del" type="button" title="Remove">✕</button>
+function recvRowHTML(code = '', qty = '', type = '') {
+    const opts = (store.itemTypes || []).map(it => {
+        let isSel = type ? it.name === type : it.default;
+        return `<option value="${esc(it.name)}" ${isSel ? 'selected' : ''}>${esc(it.name)}</option>`;
+    }).join('');
+    return `<div class="recv-row" style="flex-wrap:wrap">
+    <input class="code" type="text" placeholder="Receiver (e.g. AR)" list="recvList" value="${esc(code)}" autocomplete="off" style="flex:1;min-width:130px">
+    <select class="type" style="flex:1;min-width:100px;font-size:0.85rem">${opts}</select>
+    <div style="display:flex;flex-direction:column;width:80px">
+      <input class="qty" type="number" placeholder="Qty" min="0" inputmode="numeric" value="${esc(qty)}">
+      <div class="qty-btn-group">
+        <button type="button" class="qty-btn" tabindex="-1">+1</button>
+        <button type="button" class="qty-btn" tabindex="-1">+5</button>
+      </div>
+    </div>
+    <button class="del" type="button" title="Remove" tabindex="-1">✕</button>
   </div>`;
 }
-function addRecvRow(code = '', qty = '') {
-    $('recvRows').insertAdjacentHTML('beforeend', recvRowHTML(code, qty));
+function addRecvRow(code = '', qty = '', type = '') {
+    $('recvRows').insertAdjacentHTML('beforeend', recvRowHTML(code, qty, type));
 }
 $('addRecvBtn').addEventListener('click', () => { addRecvRow(); focusLastCode(); });
 function focusLastCode() {
@@ -37,6 +48,20 @@ $('recvRows').addEventListener('click', e => {
         e.target.closest('.recv-row').remove();
         if (!$('recvRows').children.length) addRecvRow();
         updateFormTotal();
+    } else if (e.target.classList.contains('qty-btn')) {
+        e.preventDefault();
+        if (navigator.vibrate) navigator.vibrate(50);
+        const input = e.target.closest('.recv-row').querySelector('.qty');
+        input.value = (parseInt(input.value) || 0) + parseInt(e.target.textContent);
+        updateFormTotal();
+    }
+});
+$('recvRows').addEventListener('keydown', e => {
+    if (e.key === 'Enter' && e.target.classList.contains('qty')) {
+        e.preventDefault();
+        if (navigator.vibrate) navigator.vibrate(50);
+        const code = e.target.closest('.recv-row').querySelector('.code').value.trim();
+        if (code) { addRecvRow(); focusLastCode(); }
     }
 });
 $('recvRows').addEventListener('input', updateFormTotal);
@@ -45,11 +70,14 @@ function readForm() {
     const receivers = [];
     $('recvRows').querySelectorAll('.recv-row').forEach(row => {
         const code = row.querySelector('.code').value.trim().toUpperCase();
+        const type = row.querySelector('.type').value;
         const qty = +row.querySelector('.qty').value || 0;
         if (code && qty > 0) {
             const master = store.masters.receivers[code] || {};
-            const rate = typeof master.customRate === 'number' ? master.customRate : store.rate;
-            receivers.push({ code, qty, rate });
+            const itm = store.itemTypes.find(it => it.name === type);
+            let rate = itm ? itm.rate : store.rate;
+            if (typeof master.customRate === 'number') rate = master.customRate;
+            receivers.push({ code, type, qty, rate });
         }
     });
     return { name, receivers };
@@ -66,25 +94,60 @@ function resetForm() {
     $('formTitle').textContent = '✏️ New Load Entry';
     $('saveBtn').textContent = '💾 Save Entry';
     $('cancelEditBtn').style.display = 'none';
+    if ($('dupAlert')) $('dupAlert').classList.remove('show');
 }
 $('cancelEditBtn').addEventListener('click', resetForm);
 $('saveBtn').addEventListener('click', () => {
+    if (navigator.vibrate) navigator.vibrate(50);
     const e = readForm();
     if (!e.name) { toast('Enter the seller / shop name'); $('inName').focus(); return; }
-    if (!e.receivers.length) { toast('Add at least one receiver with bags'); return; }
+    if (!e.receivers.length) { toast('Add at least one receiver with items'); return; }
     const d = curDate();
     if (!store.days[d]) store.days[d] = [];
 
-    if (editIndex === -1 && store.days[d].some(entry => entry.name.toLowerCase() === e.name.toLowerCase())) {
-        if (!confirm(`Warning: A load for "${e.name}" already exists today.\nDo you still want to save it as a duplicate?`)) {
-            return;
-        }
-    }
-
     const bk = store.autoBackup ? ' · backup ⬇' : '';
     if (editIndex >= 0) { store.days[d][editIndex] = e; toast('Entry updated ✔' + bk); }
-    else { store.days[d].push(e); toast(e.name + ' saved — ' + entryTotal(e) + ' bags ✔' + bk); }
+    else { store.days[d].push(e); toast(e.name + ' saved — ' + entryTotal(e) + ' items ✔' + bk); }
     save(); resetForm(); renderAll(); autoBackup();
+});
+
+const dupAlert = document.createElement('div');
+dupAlert.className = 'dup-alert';
+dupAlert.id = 'dupAlert';
+dupAlert.innerHTML = `<span>Load exists today.</span><button type="button" id="dupEditBtn">Edit</button>`;
+$('inName').insertAdjacentElement('afterend', dupAlert);
+
+$('inName').addEventListener('input', e => {
+    const name = e.target.value.trim().toLowerCase();
+    const d = curDate();
+    if (editIndex === -1 && store.days[d] && store.days[d].some(x => x.name.toLowerCase() === name)) dupAlert.classList.add('show');
+    else dupAlert.classList.remove('show');
+});
+
+$('inName').addEventListener('blur', e => {
+    if (editIndex >= 0) return;
+    const name = e.target.value.trim();
+    if (!name) return;
+    const d = curDate();
+    if (store.days[d] && store.days[d].some(x => x.name.toLowerCase() === name.toLowerCase())) return;
+
+    const recent = getRecentReceiversForSeller(name);
+    if (recent.length > 0) {
+        const rows = $('recvRows').querySelectorAll('.recv-row');
+        if (rows.length === 1 && !rows[0].querySelector('.code').value && !rows[0].querySelector('.qty').value) {
+            $('recvRows').innerHTML = '';
+            recent.forEach(r => addRecvRow(r.code, r.qty, r.type));
+            updateFormTotal();
+            toast('Auto-filled past receivers for ' + name);
+        }
+    }
+});
+
+dupAlert.querySelector('button').addEventListener('click', () => {
+    const name = $('inName').value.trim().toLowerCase();
+    const d = curDate();
+    const idx = store.days[d].findIndex(x => x.name.toLowerCase() === name);
+    if (idx !== -1) { editEntry(idx); window.scrollTo({ top: 0 }); }
 });
 
 function editEntry(i) {
@@ -92,7 +155,7 @@ function editEntry(i) {
     editIndex = i;
     $('inName').value = e.name;
     $('recvRows').innerHTML = '';
-    e.receivers.forEach(r => addRecvRow(r.code, r.qty));
+    e.receivers.forEach(r => addRecvRow(r.code, r.qty, r.type));
     updateFormTotal();
     $('formTitle').textContent = '✏️ Edit Entry #' + (i + 1);
     $('saveBtn').textContent = '💾 Update Entry';
@@ -124,6 +187,7 @@ function splitCSVLine(line) {
 
 function parseReceivers(str) {
     const out = [];
+    const defType = store.itemTypes.find(it => it.default) || store.itemTypes[0] || { name: 'Bag', rate: store.rate };
     String(str).split(',').forEach(chunk => {
         const m = chunk.trim().match(/^"?\s*([A-Za-z][A-Za-z .]*?)\s*[-(]\s*([\d+\s]+)\)?\s*"?$/);
         if (m) {
@@ -131,8 +195,8 @@ function parseReceivers(str) {
             const code = m[1].trim().toUpperCase();
             if (qty > 0) {
                 const master = store.masters.receivers[code] || {};
-                const rate = typeof master.customRate === 'number' ? master.customRate : store.rate;
-                out.push({ code, qty, rate });
+                const rate = typeof master.customRate === 'number' ? master.customRate : defType.rate;
+                out.push({ code, qty, type: defType.name, rate });
             }
         }
     });
@@ -204,8 +268,8 @@ function renderEntries() {
     <div class="entry-item">
       <div class="entry-sno">${i + 1}</div>
       <div class="entry-mid">
-        <div class="entry-name">${esc(e.name)} — <b>${entryTotal(e)} bags</b></div>
-        <div class="chips">${e.receivers.map(r => `<span class="chip" style="background:${getHslColor(r.code)}; border: 1px solid rgba(0,0,0,0.06); color: #1d2510">${esc(r.code)} · ${r.qty} ${r.rate && r.rate !== store.rate ? `<i>@ ₹${r.rate}</i>` : ''}</span>`).join('')}</div>
+        <div class="entry-name">${esc(e.name)} — <b>${entryTotal(e)} items</b></div>
+        <div class="chips">${e.receivers.map(r => `<span class="chip" style="background:${getHslColor(r.code)}; border: 1px solid rgba(0,0,0,0.06); color: #1d2510">${esc(r.code)} · ${r.qty} ${esc(r.type || 'Bag')}</span>`).join('')}</div>
       </div>
       <div class="entry-acts">
         <button class="icon-btn" onclick="editEntry(${i})" title="Edit">✏️</button>
@@ -217,11 +281,11 @@ function tripTableHTML(list) {
     if (!list.length) return '<div class="empty"><span class="big">🚚</span>Nothing loaded on this day yet.</div>';
     const total = list.reduce((s, e) => s + entryTotal(e), 0);
     return `<div class="tbl-wrap"><table>
-    <thead><tr><th>#</th><th>Seller / Shop</th><th class="num">Bags</th><th>Receiver-wise Split</th></tr></thead>
+    <thead><tr><th>#</th><th>Seller / Shop</th><th class="num">Items</th><th>Receiver-wise Split</th></tr></thead>
     <tbody>${list.map((e, i) => `<tr>
       <td>${i + 1}</td><td><b>${esc(e.name)}</b></td>
       <td class="num"><b>${entryTotal(e)}</b></td>
-      <td>${e.receivers.map(r => esc(r.code) + ' (' + r.qty + (r.rate && r.rate !== store.rate ? ` @ ₹${r.rate}` : '') + ')').join(', ')}</td>
+      <td>${e.receivers.map(r => esc(r.code) + ' (' + r.qty + ' ' + esc(r.type || 'Bag') + ')').join(', ')}</td>
     </tr>`).join('')}</tbody>
     <tfoot><tr><td></td><td>TOTAL — ${list.length} sellers</td><td class="num">${total}</td><td></td></tr></tfoot>
   </table></div>`;
@@ -230,7 +294,7 @@ function recvTableHTML(agg) {
     if (!agg.length) return '<div class="empty"><span class="big">📦</span>No deliveries to show yet.</div>';
     const bags = agg.reduce((s, r) => s + r.bags, 0);
     return `<div class="tbl-wrap"><table>
-    <thead><tr><th>#</th><th>Receiver &amp; From Sellers</th><th class="num">Bags</th><th class="num">Amount to Collect</th></tr></thead>
+    <thead><tr><th>#</th><th>Receiver &amp; From Sellers</th><th class="num">Items</th><th class="num">Amount to Collect</th></tr></thead>
     <tbody>${agg.map((r, i) => `<tr>
       <td>${i + 1}</td>
       <td><b>${esc(r.code)}</b><div class="brk">from ${esc(sourcesText(r))}</div></td>
@@ -245,10 +309,28 @@ function renderDashboards() {
     const bags = list.reduce((s, e) => s + entryTotal(e), 0);
     $('tripDate').textContent = fmtDate(curDate());
     $('recvDate').textContent = fmtDate(curDate());
-    $('rateShow').textContent = store.rate;
     $('stSellers').textContent = list.length;
     $('stBags').textContent = bags;
-    $('stAmount').textContent = inr(bags * store.rate);
+
+    // Injecting Driver Info Component
+    if (!$('driverInfoCont')) {
+        $('tripTable').insertAdjacentHTML('beforebegin', `
+          <div id="driverInfoCont" style="display:flex; gap:10px; margin-bottom:10px;">
+            <input type="text" id="inDriverName" class="plain" placeholder="Driver Name" value="${esc(store.driverInfo.name || '')}" style="flex:1;border:1px solid #dfe6cf;padding:6px;border-radius:6px;">
+            <input type="text" id="inVehicleNo" class="plain" placeholder="Vehicle No." value="${esc(store.driverInfo.vehicle || '')}" style="flex:1;border:1px solid #dfe6cf;padding:6px;border-radius:6px;">
+          </div>
+        `);
+        $('inDriverName').addEventListener('input', e => { store.driverInfo.name = e.target.value.trim(); save(); });
+        $('inVehicleNo').addEventListener('input', e => { store.driverInfo.vehicle = e.target.value.trim().toUpperCase(); save(); });
+    }
+
+    let totalAmt = 0;
+    list.forEach(e => e.receivers.forEach(r => {
+        let appliedRate = r.rate !== undefined ? r.rate : store.rate;
+        totalAmt += r.qty * appliedRate;
+    }));
+    $('stAmount').textContent = inr(totalAmt);
+
     $('tripTable').innerHTML = tripTableHTML(list);
     $('recvTable').innerHTML = recvTableHTML(agg);
     renderChallanList(agg);
@@ -258,7 +340,7 @@ function renderChallanList(agg) {
     if (!agg.length) { box.innerHTML = '<div class="empty">Challans appear here once the day has entries.</div>'; return; }
     box.innerHTML = agg.map(r => `
     <div class="chl-row">
-      <div class="who">🧾 ${esc(r.code)}<small>${r.bags} bags · from ${esc(sourcesText(r))}</small></div>
+      <div class="who">🧾 ${esc(r.code)}<small>${r.bags} items · from ${esc(sourcesText(r))}</small></div>
       <button class="btn btn-ghost btn-sm" data-ch-pdf="${esc(r.code)}">PDF</button>
       <button class="btn btn-yellow btn-sm" data-ch-img="${esc(r.code)}">Image</button>
     </div>`).join('');
@@ -281,9 +363,8 @@ function renderDays() {
         <div class="entry-name">📅 ${fmtDate(d)}</div>
         <div class="chips">
           <span class="chip">${list.length} sellers</span>
-          <span class="chip">${bags} bags</span>
+          <span class="chip">${bags} items</span>
           <span class="chip">${unq.size} receivers</span>
-          <span class="chip" style="background:#fdf6d8">${inr(bags * store.rate)}</span>
         </div>
       </div>
       <div class="entry-acts"><span style="align-self:center;color:var(--muted)">›</span></div>
@@ -295,54 +376,129 @@ function gotoDay(d) {
     renderAll();
     document.querySelector('nav.tabs button[data-tab=trip]').click();
 }
+let _renderAllTimer = null;
 function renderAll() {
-    renderEntries(); renderDashboards(); renderDatalists(); renderDays();
-    renderLedger(); renderPayments(); renderMasters();
+    if (_renderAllTimer) clearTimeout(_renderAllTimer);
+    _renderAllTimer = setTimeout(() => {
+        renderEntries(); renderDashboards(); renderDatalists(); renderDays();
+        renderLedger(); renderPayments(); renderMasters();
+        if (typeof renderItemTypes === 'function') renderItemTypes();
+    }, 10);
+}
+
+function renderItemTypes() {
+    const list = $('itemTypesList');
+    if (!list) return;
+    list.innerHTML = store.itemTypes.map((it, i) => `
+    <div style="display:flex; gap:8px; align-items:center; background:var(--chip); padding:8px 12px; border-radius:10px;">
+      <input type="radio" name="defaultItemType" ${it.default ? 'checked' : ''} onchange="setDefaultItemType(${i})" title="Set as default">
+      <input type="text" value="${esc(it.name)}" onchange="updateItemType(${i}, 'name', this.value)" style="flex:1" placeholder="Item Name (e.g. 50 Kg Bag)">
+      <div style="display:flex;align-items:center;background:#fff;border-radius:10px;border:1.5px solid var(--line);overflow:hidden">
+        <span style="padding:0 8px;color:var(--muted);font-size:.85rem;border-right:1.5px solid var(--line)">₹</span>
+        <input type="number" value="${it.rate}" onchange="updateItemType(${i}, 'rate', this.value)" style="width:70px;border:none;border-radius:0;text-align:right" min="0">
+      </div>
+      <button class="icon-btn red" onclick="deleteItemType(${i})" title="Delete" style="flex:0 0 34px">🗑️</button>
+    </div>
+    `).join('');
+}
+
+function updateItemType(i, field, val) {
+    if (field === 'rate') store.itemTypes[i].rate = +val;
+    if (field === 'name') store.itemTypes[i].name = val;
+    save(); autoBackup();
+    toast('Item type updated');
+}
+
+function setDefaultItemType(i) {
+    store.itemTypes.forEach(it => it.default = false);
+    store.itemTypes[i].default = true;
+    save(); autoBackup();
+    toast(store.itemTypes[i].name + ' set as default');
+}
+
+function addItemType() {
+    store.itemTypes.push({ name: 'New Item Type', rate: 100 });
+    renderItemTypes();
+    save(); autoBackup();
+}
+
+function deleteItemType(i) {
+    if (store.itemTypes.length <= 1) return toast('You must have at least one item type.');
+    if (confirm('Delete item type "' + store.itemTypes[i].name + '"?')) {
+        const wasDefault = store.itemTypes[i].default;
+        store.itemTypes.splice(i, 1);
+        if (wasDefault) store.itemTypes[0].default = true;
+        renderItemTypes();
+        save(); autoBackup();
+    }
 }
 
 let chartObj = { recv: null, sell: null };
+let _rATimer = null;
 function renderAnalytics() {
-    const { allSellers, allReceivers } = analyticsAgg();
+    if (!$('page-analytics').classList.contains('active')) return;
+    if (_rATimer) clearTimeout(_rATimer);
+    _rATimer = setTimeout(() => {
+        const { allSellers, allReceivers } = analyticsAgg();
 
-    const sortSellers = Object.entries(allSellers).sort((a, b) => b[1] - a[1]);
-    $('topSellers').innerHTML = sortSellers.slice(0, 3).map(([n, b], i) => `<li>${i + 1}. ${esc(n)} (${b} bags)</li>`).join('') || '<li>No data</li>';
+        const sortSellers = Object.entries(allSellers).sort((a, b) => b[1] - a[1]);
+        $('topSellers').innerHTML = sortSellers.slice(0, 3).map(([n, b], i) => `<li>${i + 1}. ${esc(n)} (${b} bags)</li>`).join('') || '<li>No data</li>';
 
-    const sortReceivers = Object.entries(allReceivers).sort((a, b) => b[1] - a[1]);
-    $('topReceivers').innerHTML = sortReceivers.slice(0, 3).map(([n, b], i) => `<li>${i + 1}. ${esc(n)} (${b} bags)</li>`).join('') || '<li>No data</li>';
+        const sortReceivers = Object.entries(allReceivers).sort((a, b) => b[1] - a[1]);
+        $('topReceivers').innerHTML = sortReceivers.slice(0, 3).map(([n, b], i) => `<li>${i + 1}. ${esc(n)} (${b} bags)</li>`).join('') || '<li>No data</li>';
 
-    const balances = ledgerRows().filter(r => r.balance > 0).sort((a, b) => b.balance - a.balance);
-    $('analyticsBalances').innerHTML = balances.length
-        ? `<ul style="font-size:.85rem;color:var(--danger);font-weight:700;line-height:1.6;list-style:none;margin-left:14px">${balances.map(r => `<li>${esc(r.code)}: ${inr(r.balance)}</li>`).join('')}</ul>`
-        : '<div class="empty" style="padding:10px">No pending balances.</div>';
+        const balances = ledgerRows().filter(r => r.balance > 0).sort((a, b) => b.balance - a.balance);
+        $('analyticsBalances').innerHTML = balances.length
+            ? `<ul style="font-size:.85rem;color:var(--danger);font-weight:700;line-height:1.6;list-style:none;margin-left:14px">${balances.map(r => `<li>${esc(r.code)}: ${inr(r.balance)}</li>`).join('')}</ul>`
+            : '<div class="empty" style="padding:10px">No pending balances.</div>';
 
-    if (chartObj.recv) chartObj.recv.destroy();
-    if (chartObj.sell) chartObj.sell.destroy();
+        if (chartObj.recv) chartObj.recv.destroy();
+        if (chartObj.sell) chartObj.sell.destroy();
 
-    if (typeof Chart === 'undefined') return;
+        if (typeof Chart === 'undefined') return;
 
-    const ctxRecv = $('bagsPerReceiverChart').getContext('2d');
-    chartObj.recv = new Chart(ctxRecv, {
-        type: 'bar',
-        data: {
-            labels: sortReceivers.slice(0, 10).map(x => x[0]),
-            datasets: [{ label: 'Bags Delivered', data: sortReceivers.slice(0, 10).map(x => x[1]), backgroundColor: 'rgba(62,124,43,0.7)' }]
-        },
-        options: { maintainAspectRatio: false, scales: { y: { beginAtZero: true, ticks: { precision: 0 } } } }
-    });
+        const ctxRecv = $('bagsPerReceiverChart').getContext('2d');
+        chartObj.recv = new Chart(ctxRecv, {
+            type: 'bar',
+            data: {
+                labels: sortReceivers.slice(0, 10).map(x => x[0]),
+                datasets: [{ label: 'Bags Delivered', data: sortReceivers.slice(0, 10).map(x => x[1]), backgroundColor: 'rgba(62,124,43,0.7)' }]
+            },
+            options: { maintainAspectRatio: false, scales: { y: { beginAtZero: true, ticks: { precision: 0 } } } }
+        });
 
-    const ctxSell = $('bagsPerSellerChart').getContext('2d');
-    chartObj.sell = new Chart(ctxSell, {
-        type: 'pie',
-        data: {
-            labels: sortSellers.slice(0, 10).map(x => x[0]),
-            datasets: [{
-                label: 'Bags Loaded',
-                data: sortSellers.slice(0, 10).map(x => x[1]),
-                backgroundColor: sortSellers.slice(0, 10).map(x => getHslColor(x[0]))
-            }]
-        },
-        options: { maintainAspectRatio: false }
-    });
+        const ctxSell = $('bagsPerSellerChart').getContext('2d');
+        chartObj.sell = new Chart(ctxSell, {
+            type: 'pie',
+            data: {
+                labels: sortSellers.slice(0, 10).map(x => x[0]),
+                datasets: [{
+                    label: 'Bags Loaded',
+                    data: sortSellers.slice(0, 10).map(x => x[1]),
+                    backgroundColor: sortSellers.slice(0, 10).map(x => getHslColor(x[0]))
+                }]
+            },
+            options: { maintainAspectRatio: false }
+        });
+
+        // Generate daily bag trend chart
+        if (!$('bagTrendChart')) {
+            const trCtn = `<div class="card"><h2 style="font-size:1.2rem;margin-bottom:10px;color:var(--leaf-dark)">📈 Daily Load Trend (Last 7 Days)</h2><div style="position:relative;height:240px;width:100%"><canvas id="bagTrendChart"></canvas></div></div>`;
+            $('bagsPerSellerChart').closest('.card').insertAdjacentHTML('afterend', trCtn);
+        }
+        if (chartObj.trend) chartObj.trend.destroy();
+        const trendCtx = $('bagTrendChart').getContext('2d');
+        const trends = dailyTrendAgg(7);
+        chartObj.trend = new Chart(trendCtx, {
+            type: 'line',
+            data: {
+                labels: trends.map(t => t.date.slice(5)),
+                datasets: [{ label: 'Items Loaded', data: trends.map(t => t.items), borderColor: '#3e7c2b', tension: 0.2, fill: true, backgroundColor: 'rgba(62,124,43,0.1)' }]
+            },
+            options: { maintainAspectRatio: false, scales: { y: { beginAtZero: true } } }
+        });
+
+    }, 50);
 }
 
 /* ================= Report DOMs (for PDF / image) ================= */
@@ -367,7 +523,7 @@ function buildLoadingReport() {
         let bodyRows = chunk.map((e, idx) => `<tr>
       <td>${currentIdx - limit + idx + 1}</td><td><b>${esc(e.name)}</b></td>
       <td class="num"><b>${entryTotal(e)}</b></td>
-      <td>${e.receivers.map(r => esc(r.code) + ' (' + r.qty + ')').join(', ')}</td>
+      <td>${e.receivers.map(r => esc(r.code) + ' (' + r.qty + ' ' + esc(r.type || 'Bag') + ')').join(', ')}</td>
     </tr>`).join('');
 
         let isLast = currentIdx >= list.length;
@@ -382,7 +538,7 @@ function buildLoadingReport() {
           </div>
           <div class="repstats">
             <div class="repstat"><div class="v">${list.length}</div><div class="l">Sellers</div></div>
-            <div class="repstat"><div class="v">${totalBags}</div><div class="l">Bags Loaded</div></div>
+            <div class="repstat"><div class="v">${totalBags}</div><div class="l">Items Loaded</div></div>
           </div>
         ` : `
           <div style="font-size:0.9rem; font-weight:bold; margin-bottom:10px; color:var(--leaf-dark); display:flex; justify-content:space-between;">
@@ -415,9 +571,9 @@ function buildDeliveryReport(hidePrice = false) {
 
     let repStatsHtml = hidePrice
         ? `<div class="repstat"><div class="v">${agg.length}</div><div class="l">Receivers</div></div>
-       <div class="repstat"><div class="v">${totalBags}</div><div class="l">Bags Delivered</div></div>`
+       <div class="repstat"><div class="v">${totalBags}</div><div class="l">Items Delivered</div></div>`
         : `<div class="repstat"><div class="v">${agg.length}</div><div class="l">Receivers</div></div>
-       <div class="repstat"><div class="v">${totalBags}</div><div class="l">Bags Delivered</div></div>
+       <div class="repstat"><div class="v">${totalBags}</div><div class="l">Items Delivered</div></div>
        <div class="repstat gold"><div class="v">${inr(agg.reduce((s, r) => s + (r.amount || 0), 0))}</div><div class="l">Total to Collect</div></div>`;
 
     let headRow = hidePrice
@@ -441,13 +597,13 @@ function buildDeliveryReport(hidePrice = false) {
             if (hidePrice) {
                 return `<tr>
           <td>${idx}</td>
-          <td><span class="rcode">${esc(r.code)}</span><div class="brk">${r.sources.map(s => esc(s.name) + ' (' + s.qty + ')').join(' &nbsp;·&nbsp; ')}</div></td>
+          <td><span class="rcode">${esc(r.code)}</span><div class="brk">from ${esc(sourcesText(r))}</div></td>
           <td class="num"><b>${r.bags}</b></td>
         </tr>`;
             } else {
                 return `<tr>
           <td>${idx}</td>
-          <td><span class="rcode">${esc(r.code)}</span><div class="brk">${r.sources.map(s => esc(s.name) + ' (' + s.qty + ')').join(' &nbsp;·&nbsp; ')}</div></td>
+          <td><span class="rcode">${esc(r.code)}</span><div class="brk">from ${esc(sourcesText(r))}</div></td>
           <td class="num"><b>${r.bags}</b></td>
           <td class="num money">${inr(r.amount)}</td>
           <td style="text-align:center"><span class="collbox"></span></td>
@@ -636,7 +792,7 @@ function buildChallan(r, idx) {
       </div>
       <div class="ch-to">
         <div><div class="lbl">Delivered To</div><div class="who">${esc(r.code)}</div></div>
-        <div class="bags"><div class="n">${r.bags}</div><div class="t">Bags of Lemons</div></div>
+        <div class="bags"><div class="n">${r.bags}</div><div class="t">x ${esc(r.type || 'Bag')}</div></div>
       </div>
       <div class="ch-line">You have received these bags from:</div>
       <div class="tbl-wrap"><table>
@@ -675,21 +831,29 @@ function remindReceiver(code) {
 }
 function renderLedger() {
     const rows = ledgerRows();
-    document.querySelectorAll('.rateShow2').forEach(el => el.textContent = store.rate);
     if (!rows.length) { $('ledgerTable').innerHTML = '<div class="empty"><span class="big">💰</span>No deliveries or payments yet.</div>'; return; }
     const tb = rows.reduce((s, r) => ({ bags: s.bags + r.bags, charges: s.charges + r.charges, received: s.received + r.received, balance: s.balance + r.balance }), { bags: 0, charges: 0, received: 0, balance: 0 });
+
     $('ledgerTable').innerHTML = `<div class="tbl-wrap"><table>
-    <thead><tr><th>Receiver</th><th class="num">Bags</th><th class="num">Charges</th><th class="num">Received</th><th class="num">Balance</th><th></th></tr></thead>
-    <tbody>${rows.map(r => `<tr>
-      <td><b>${esc(r.code)}</b></td>
-      <td class="num">${r.bags}</td>
-      <td class="num">${inr(r.charges)}</td>
-      <td class="num" style="color:var(--leaf)">${inr(r.received)}</td>
-      <td class="num" style="font-weight:800;color:${r.balance > 0 ? 'var(--danger)' : 'var(--leaf)'}">${inr(r.balance)}</td>
-      <td>${r.balance > 0 ? `<button class="icon-btn" data-remind="${esc(r.code)}" title="WhatsApp reminder">💬</button>` : '✅'}</td>
-    </tr>`).join('')}</tbody>
-    <tfoot><tr><td>TOTAL</td><td class="num">${tb.bags}</td><td class="num">${inr(tb.charges)}</td><td class="num">${inr(tb.received)}</td><td class="num">${inr(tb.balance)}</td><td></td></tr></tfoot>
-  </table></div>`;
+      <thead><tr><th>#</th><th>Receiver</th><th class="num">Items</th><th class="num">Charges</th><th class="num">Received</th><th class="num">Balance</th><th>Aging</th></tr></thead>
+      <tbody>${rows.map((r, i) => {
+        let agingBadge = '';
+        if (r.balance > 0) {
+            if (r.agingDays > 30) agingBadge = `<span class="badge-aging aging-danger">${r.agingDays}d</span>`;
+            else if (r.agingDays > 15) agingBadge = `<span class="badge-aging aging-warn">${r.agingDays}d</span>`;
+            else agingBadge = `<span class="badge-aging aging-good">${r.agingDays}d</span>`;
+        }
+        return `<tr>
+        <td>${i + 1}</td>
+        <td><a href="#" onclick="showStatement('${esc(r.code)}');return false"><b>${esc(r.code)}</b></a></td>
+        <td class="num">${r.bags}</td>
+        <td class="num money">${inr(r.charges)}</td>
+        <td class="num money" style="color:var(--leaf-dark)">${inr(r.received)}</td>
+        <td class="num money" style="color:var(--danger)"><b>${inr(r.balance)}</b></td>
+        <td>${agingBadge}</td>
+      </tr>`}).join('')}</tbody>
+      <tfoot><tr><td></td><td>TOTAL</td><td class="num">${tb.bags}</td><td class="num money">${inr(tb.charges)}</td><td class="num money">${inr(tb.received)}</td><td class="num money">${inr(tb.balance)}</td><td></td></tr></tfoot>
+    </table></div>`;
 }
 $('ledgerTable').addEventListener('click', e => {
     const b = e.target.closest('button[data-remind]');
@@ -970,7 +1134,7 @@ function handleDialpad(val) {
     renderPinDots();
 
     if (enteredPin.length === 4) {
-        setTimeout(() => {
+        setTimeout(async () => {
             if (settingPinMode) {
                 if (!tempPin) {
                     tempPin = enteredPin;
@@ -979,7 +1143,7 @@ function handleDialpad(val) {
                     $('lockScreen').querySelector('h1').textContent = 'Confirm PIN';
                 } else {
                     if (tempPin === enteredPin) {
-                        store.pin = btoa(enteredPin);
+                        store.pin = await hashPin(enteredPin);
                         save();
                         toast('PIN saved successfully!');
                         $('lockScreen').style.display = 'none';
@@ -993,7 +1157,12 @@ function handleDialpad(val) {
                     }
                 }
             } else {
-                if (btoa(enteredPin) === store.pin) {
+                const hashed = await hashPin(enteredPin);
+                if (hashed === store.pin || btoa(enteredPin) === store.pin) {
+                    if (btoa(enteredPin) === store.pin) {
+                        store.pin = hashed;
+                        save();
+                    }
                     $('lockScreen').style.display = 'none';
                     enteredPin = '';
                 } else {
@@ -1041,6 +1210,35 @@ if ($('removePinBtn')) {
 window.signDataUrl = null;
 let isSigning = false;
 let signCtx = null;
+
+function canvasBlob(canvas, type) {
+    return new Promise(resolve => canvas.toBlob(blob => resolve(blob), type));
+}
+
+// Inject WhatsApp Backup share button
+const backupRow = $('page-backup').querySelector('.filerow');
+if (backupRow) {
+    backupRow.insertAdjacentHTML('beforeend', `<button class="btn" style="background:#25D366;color:#fff;margin-top:8px;width:100%" onclick="shareBackupWhatsApp()"><span class="ico">💬</span> Share Backup to WhatsApp</button>`);
+}
+
+function shareBackupWhatsApp() {
+    const jsonStr = JSON.stringify(store, null, 2);
+    const blob = new Blob([jsonStr], { type: 'application/json' });
+    const dt = new Date();
+    const ts = dt.getDate() + '-' + MONTHS[dt.getMonth()] + '-' + dt.getFullYear() + '_' + String(dt.getHours()).padStart(2, '0') + '-' + String(dt.getMinutes()).padStart(2, '0');
+    const fn = 'LemonTripSheet_backup_' + ts + '.json';
+    const file = new File([blob], fn, { type: 'application/json' });
+
+    if (navigator.share && navigator.canShare && navigator.canShare({ files: [file] })) {
+        navigator.share({
+            files: [file],
+            title: 'Lemon Trip Sheet Backup',
+            text: 'Here is the backup file from ' + fmtDate(curDate()) + '!'
+        }).catch(e => console.error(e));
+    } else {
+        toast('Web Share API not supported on this device/browser for files.');
+    }
+}
 
 if ($('signPad')) {
     const canvas = $('signPad');

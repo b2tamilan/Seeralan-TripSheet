@@ -1,7 +1,7 @@
 'use strict';
 /* ================= State ================= */
 const LS_KEY = 'lemonTripSheet_v1';
-let store = { rate: 250, autoBackup: true, days: {}, masters: { sellers: {}, receivers: {} }, payments: [] };
+let store = { rate: 250, autoBackup: true, days: {}, masters: { sellers: {}, receivers: {} }, payments: [], itemTypes: [], signature: null, driverInfo: {} };
 let editIndex = -1;
 let editPaymentIndex = -1;
 function load() {
@@ -10,16 +10,51 @@ function load() {
     if (raw) { const s = JSON.parse(raw); if (s && typeof s === 'object') { store = Object.assign({ rate: 250, days: {} }, s); } }
   } catch (e) { console.warn('load failed', e); }
   if (typeof store.rate !== 'number' || !(store.rate >= 0)) store.rate = 250;
+
+  if (!store.itemTypes || !Array.isArray(store.itemTypes) || store.itemTypes.length === 0) {
+    store.itemTypes = [
+      { name: "50 Kg Bag", rate: 250 },
+      { name: "45 Kg Bag", rate: 250, default: true },
+      { name: "40 Kg Bag", rate: 200 },
+      { name: "25 Kg Bag", rate: 100 },
+      { name: "Crate (டிப்பர்)", rate: 100 }
+    ];
+  }
+
   if (typeof store.autoBackup !== 'boolean') store.autoBackup = true;
   if (!store.days || typeof store.days !== 'object') store.days = {};
   if (!store.masters || typeof store.masters !== 'object') store.masters = {};
   if (!store.masters.sellers || typeof store.masters.sellers !== 'object') store.masters.sellers = {};
   if (!store.masters.receivers || typeof store.masters.receivers !== 'object') store.masters.receivers = {};
   if (!Array.isArray(store.payments)) store.payments = [];
+  if (!store.driverInfo || typeof store.driverInfo !== 'object') store.driverInfo = {};
+
+  if (store.signature) {
+    window.signDataUrl = store.signature;
+  }
 }
-function save() { localStorage.setItem(LS_KEY, JSON.stringify(store)); }
+function save() {
+  try {
+    if (window.signDataUrl !== undefined) {
+      store.signature = window.signDataUrl;
+    }
+    localStorage.setItem(LS_KEY, JSON.stringify(store));
+  } catch (e) {
+    if (e.name === 'QuotaExceededError' || (e.message && e.message.toLowerCase().includes('quota'))) {
+      alert('Storage full! Please backup and clear old days.');
+    } else {
+      console.error('Failed to save to localStorage:', e);
+    }
+  }
+}
 
 /* ================= Helpers ================= */
+async function hashPin(pin) {
+  const msgUint8 = new TextEncoder().encode(pin);
+  const hashBuffer = await crypto.subtle.digest('SHA-256', msgUint8);
+  const hashArray = Array.from(new Uint8Array(hashBuffer));
+  return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+}
 const $ = id => document.getElementById(id);
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 function todayISO() { const d = new Date(); return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); }
@@ -36,25 +71,51 @@ function receiverAgg(entries) {
   entries.forEach(e => e.receivers.forEach(r => {
     const code = (r.code || '').toUpperCase();
     const qty = +r.qty || 0;
-    const appliedRate = r.rate || store.rate;
+    const appliedRate = r.rate !== undefined ? r.rate : store.rate;
+    const type = r.type || 'Bag';
     if (!code || !qty) return;
-    if (!map.has(code)) map.set(code, { bags: 0, amount: 0, sources: [] });
-    const rec = map.get(code);
+    const key = code;
+    if (!map.has(key)) map.set(key, { code, bags: 0, amount: 0, sources: [] });
+    const rec = map.get(key);
     rec.bags += qty;
     rec.amount += qty * appliedRate;
-    const src = rec.sources.find(s => s.name === e.name);
+    const src = rec.sources.find(s => s.name === e.name && s.type === type);
     if (src) {
       src.qty += qty;
       src.amount = (src.amount || 0) + (qty * appliedRate);
     } else {
-      rec.sources.push({ name: e.name, qty, rate: appliedRate, amount: qty * appliedRate });
+      rec.sources.push({ name: e.name, qty, rate: appliedRate, type: type, amount: qty * appliedRate });
     }
   }));
-  return [...map.entries()].map(([code, v]) => ({ code, bags: v.bags, amount: v.amount, sources: v.sources }))
-    .sort((a, b) => b.bags - a.bags || a.code.localeCompare(b.code));
+  return [...map.values()]
+    .sort((a, b) => a.code.localeCompare(b.code) || b.bags - a.bags);
 }
 
-function sourcesText(r) { return r.sources.map(s => s.name + ' (' + s.qty + (s.rate && s.rate !== store.rate ? ` @ ₹${s.rate}` : '') + ')').join(', '); }
+function sourcesText(r) {
+  const def = (store.itemTypes || []).find(it => it.default);
+  const defType = def ? def.name : '45 Kg Bag';
+  return r.sources.map(s => s.name + ' (' + s.qty + (s.type && s.type !== defType && s.type !== 'Bag' ? ` @ ${s.type}` : '') + ')').join(', ');
+}
+
+function getRecentReceiversForSeller(name) {
+  if (!name) return [];
+  const lookBack = 7;
+  const now = new Date();
+
+  for (let i = 0; i < lookBack; i++) {
+    const d = new Date(now);
+    d.setDate(d.getDate() - i);
+    const dateStr = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+
+    if (store.days[dateStr]) {
+      const entry = store.days[dateStr].find(e => e.name.toLowerCase() === name.toLowerCase());
+      if (entry && entry.receivers.length > 0) {
+        return entry.receivers.map(r => ({ code: r.code, type: r.type, qty: r.qty }));
+      }
+    }
+  }
+  return [];
+}
 
 function sumPlus(s) { return String(s).split('+').reduce((t, x) => t + (parseInt(x, 10) || 0), 0); }
 
@@ -82,19 +143,52 @@ function allPartyNames(type) {
 }
 
 function ledgerRows() {
-  const bags = {};
-  const chargesObj = {};
-  Object.values(store.days).forEach(list => list.forEach(e => e.receivers.forEach(r => {
-    const c = r.code.toUpperCase();
-    bags[c] = (bags[c] || 0) + (+r.qty || 0);
-    chargesObj[c] = (chargesObj[c] || 0) + ((+r.qty || 0) * (r.rate || store.rate));
-  })));
-  const paid = {};
-  store.payments.forEach(p => paid[p.code] = (paid[p.code] || 0) + (+p.amount || 0));
-  const codes = new Set([...Object.keys(bags), ...Object.keys(paid)]);
-  return [...codes].map(code => {
-    const b = bags[code] || 0, charges = chargesObj[code] || 0, received = paid[code] || 0;
-    return { code, bags: b, charges, received, balance: charges - received };
+  const map = {};
+  Object.keys(store.days).forEach(date => {
+    store.days[date].forEach(e => e.receivers.forEach(r => {
+      const c = r.code.toUpperCase();
+      const appliedRate = r.rate !== undefined ? r.rate : store.rate;
+      if (!map[c]) map[c] = { bags: 0, charges: [], received: 0 };
+      map[c].bags += (+r.qty || 0);
+      map[c].charges.push({ date: new Date(date), amount: (+r.qty || 0) * appliedRate });
+    }));
+  });
+  store.payments.forEach(p => {
+    const c = p.code.toUpperCase();
+    if (!map[c]) map[c] = { bags: 0, charges: [], received: 0 };
+    map[c].received += (+p.amount || 0);
+  });
+
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  return Object.keys(map).map(code => {
+    const data = map[code];
+    let totalCharges = data.charges.reduce((s, x) => s + x.amount, 0);
+    let balance = totalCharges - data.received;
+
+    let remainingPayment = data.received;
+    data.charges.sort((a, b) => a.date - b.date);
+    let oldestDate = null;
+
+    if (balance > 0) {
+      for (const chg of data.charges) {
+        if (remainingPayment >= chg.amount) {
+          remainingPayment -= chg.amount;
+        } else {
+          oldestDate = chg.date;
+          break;
+        }
+      }
+    }
+
+    let agingDays = 0;
+    if (oldestDate) {
+      const diffTime = today - oldestDate;
+      agingDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
+    }
+
+    return { code, bags: data.bags, charges: totalCharges, received: data.received, balance, agingDays };
   }).sort((a, b) => b.balance - a.balance || a.code.localeCompare(b.code));
 }
 
@@ -108,7 +202,8 @@ function receiverStatementRows(code, fromD, toD) {
     store.days[date].forEach(e => e.receivers.forEach(r => {
       if (r.code.toUpperCase() === c) {
         const qty = +r.qty || 0;
-        const appliedRate = r.rate || store.rate;
+        const appliedRate = r.rate !== undefined ? r.rate : store.rate;
+        const type = r.type || 'Bag';
         const amt = qty * appliedRate;
         if (date < fromD) {
           openingBags += qty;
@@ -118,6 +213,7 @@ function receiverStatementRows(code, fromD, toD) {
             date: date,
             seller: e.name,
             bags: qty,
+            type: type,
             rate: appliedRate,
             amount: amt,
             payment: 0
@@ -170,6 +266,22 @@ function receiverStatementRows(code, fromD, toD) {
   });
 
   return rows;
+}
+
+function dailyTrendAgg(daysToLookBack = 15) {
+  const trends = [];
+  const now = new Date();
+  for (let i = daysToLookBack - 1; i >= 0; i--) {
+    const d = new Date(now);
+    d.setDate(d.getDate() - i);
+    const dateStr = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+    let totalItems = 0;
+    if (store.days[dateStr]) {
+      totalItems = store.days[dateStr].reduce((sum, e) => sum + entryTotal(e), 0);
+    }
+    trends.push({ date: dateStr, items: totalItems });
+  }
+  return trends;
 }
 
 /* ================= Analytics ================= */

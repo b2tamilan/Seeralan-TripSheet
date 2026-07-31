@@ -87,14 +87,14 @@ function exportExcel() {
     const list = dayEntries(), agg = receiverAgg(list);
     const wb = XLSX.utils.book_new();
 
-    const s1 = [['S.No', 'Seller / Shop', 'Total Bags', 'Receiver-wise Details']];
-    list.forEach((e, i) => s1.push([i + 1, e.name, entryTotal(e), e.receivers.map(r => r.code + ' (' + r.qty + ')').join(', ')]));
+    const s1 = [['S.No', 'Seller / Shop', 'Total Items', 'Receiver-wise Details']];
+    list.forEach((e, i) => s1.push([i + 1, e.name, entryTotal(e), e.receivers.map(r => r.code + ' (' + r.qty + ' ' + (r.type || 'Bag') + ')').join(', ')]));
     s1.push(['', 'TOTAL', list.reduce((s, e) => s + entryTotal(e), 0), '']);
     const ws1 = XLSX.utils.aoa_to_sheet(s1);
     ws1['!cols'] = [{ wch: 6 }, { wch: 24 }, { wch: 11 }, { wch: 42 }];
     XLSX.utils.book_append_sheet(wb, ws1, 'Trip Sheet');
 
-    const s2 = [['S.No', 'Receiver', 'Which Sellers & Split', 'Total Bags delivered', 'Amount to Collect (Rs)']];
+    const s2 = [['S.No', 'Receiver', 'Which Sellers & Split', 'Total Items delivered', 'Amount to Collect (Rs)']];
     agg.forEach((r, i) => s2.push([i + 1, r.code, sourcesText(r), r.bags, r.amount]));
     const tb = agg.reduce((s, r) => s + r.bags, 0);
     const ta = agg.reduce((s, r) => s + (r.amount || 0), 0);
@@ -172,19 +172,19 @@ function exportStatementExcel() {
 
     const wb = XLSX.utils.book_new();
     const s = [['Ledger Statement: ' + code.toUpperCase(), 'Period: ' + dateRangeStr], []];
-    s.push(['Date', 'Seller', 'Bags', 'Rate', 'Amount (Rs)', 'Payment (Rs)', 'Balance (Rs)']);
+    s.push(['Date', 'Seller', 'Qty', 'Item Type', 'Rate', 'Amount (Rs)', 'Payment (Rs)', 'Balance (Rs)']);
 
     let tb = 0, ta = 0, tp = 0;
     list.forEach(r => {
         if (!r.isOpening) { tb += r.bags || 0; ta += r.amount || 0; tp += r.payment || 0; }
-        s.push([r.isOpening ? '—' : fmtDate(r.date), r.seller, r.bags || '', r.rate || '', r.amount || '', r.payment || '', r.balance]);
+        s.push([r.isOpening ? '—' : fmtDate(r.date), r.seller, r.bags || '', r.type || '', r.rate || '', r.amount || '', r.payment || '', r.balance]);
     });
 
     const finalBal = list.length ? list[list.length - 1].balance : 0;
-    s.push(['TOTAL', '', tb, '', ta, tp, finalBal]);
+    s.push(['TOTAL', '', tb, '', '', ta, tp, finalBal]);
 
     const ws = XLSX.utils.aoa_to_sheet(s);
-    ws['!cols'] = [{ wch: 12 }, { wch: 25 }, { wch: 8 }, { wch: 8 }, { wch: 12 }, { wch: 12 }, { wch: 15 }];
+    ws['!cols'] = [{ wch: 12 }, { wch: 25 }, { wch: 8 }, { wch: 15 }, { wch: 8 }, { wch: 12 }, { wch: 12 }, { wch: 15 }];
 
     XLSX.utils.book_append_sheet(wb, ws, 'Statement');
     XLSX.writeFile(wb, `Statement_${code}_${fDate}_to_${tDate}.xlsx`);
@@ -307,17 +307,17 @@ function whatsAppText(kind) {
         L.push('_₹' + store.rate + ' per bag_');
         L.push('');
         agg.forEach(r => {
-            L.push('*' + r.code + '*: ' + r.bags + ' bags = *₹' + (r.bags * store.rate).toLocaleString('en-IN') + '*');
-            L.push('   ↳ from ' + r.sources.map(s => s.name + '-' + s.qty).join(', '));
+            L.push('*' + r.code + '*: ' + r.bags + ' items = *₹' + (r.amount || 0).toLocaleString('en-IN') + '*');
+            L.push('   ↳ from ' + sourcesText(r));
         });
         L.push('');
-        L.push('*Total: ' + bags + ' bags — collect ₹' + (bags * store.rate).toLocaleString('en-IN') + '*');
+        L.push('*Total items: ' + bags + '  — collect ₹' + agg.reduce((s, x) => s + (x.amount || 0), 0).toLocaleString('en-IN') + '*');
     } else {
         L.push('🍋 *Loading Report — ' + fmtDate(curDate()) + '*');
         L.push('');
-        list.forEach((e, i) => L.push((i + 1) + '. ' + e.name + ' — ' + entryTotal(e) + ' [' + e.receivers.map(r => r.code + '-' + r.qty).join(', ') + ']'));
+        list.forEach((e, i) => L.push((i + 1) + '. ' + e.name + ' — ' + entryTotal(e) + ' [' + e.receivers.map(r => r.code + ' (' + r.qty + ' ' + (r.type || 'Bag') + ')').join(', ') + ']'));
         L.push('');
-        L.push('*Total loaded: ' + bags + ' bags (' + list.length + ' sellers)*');
+        L.push('*Total loaded: ' + bags + ' items (' + list.length + ' sellers)*');
     }
     return L.join('\n');
 }
