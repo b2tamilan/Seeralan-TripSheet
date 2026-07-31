@@ -128,7 +128,8 @@
       </div>
       <div class="card">
         <h2>🧾 Delivery Challans (goods only — no money)</h2>
-        <p class="hint">One challan per receiver: total bags delivered + which sellers they came from. Rates and amounts
+        <p class="hint">One challan per receiver: total items delivered + which sellers they came from. Rates and
+          amounts
           are never printed on a challan.</p>
         <button class="btn btn-green btn-block" onclick="exportAllChallans()">📄 All challans — one PDF (1 page per
           receiver)</button>
@@ -183,8 +184,8 @@
 
       <div class="card">
         <h2>💰 Receiver Ledger — Outstanding</h2>
-        <p class="hint" style="margin-bottom:10px">Charges = all bags delivered (all days) × current rate ₹<span
-            class="rateShow2"></span>. Balance = charges − payments received.</p>
+        <p class="hint" style="margin-bottom:10px">Total Charges = all items delivered (all days) × snapshotted rates.
+          Balance = charges − payments received.</p>
         <div id="ledgerTable"></div>
       </div>
       <div class="card">
@@ -273,11 +274,12 @@
       </div>
       <div class="card">
         <h2>⚙️ Settings</h2>
-        <label class="fld">Rate per bag (₹) — collected from each receiver</label>
-        <div class="rate-row">
-          <input type="number" id="rateInput" min="0" step="1">
-          <button class="btn btn-green btn-sm" onclick="saveRate()">Save rate</button>
-        </div>
+
+        <label class="fld">Item Types &amp; Rates (₹)</label>
+        <p class="hint" style="margin-bottom:8px">Set default and manage available packing types and their rates.</p>
+        <div id="itemTypesList" style="display:flex;flex-direction:column;gap:8px;"></div>
+        <button class="btn btn-ghost btn-sm" onclick="addItemType()" style="margin-top:8px">＋ Add Item Type</button>
+
         <label class="fld"
           style="display:flex;align-items:center;gap:10px;margin-top:16px;font-size:.84rem;color:var(--ink);cursor:pointer">
           <input type="checkbox" id="autoBackupChk" style="width:20px;height:20px;accent-color:var(--leaf)">
