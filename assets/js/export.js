@@ -8,12 +8,17 @@ function hideSpinner() {
 }
 
 function libMissing(name) { toast('⚠ ' + name + ' needs internet the first time. Connect once and retry.'); }
-function fileBase(kind) {
-    if (kind === 'delivery') return 'CollectionReport_' + fmtDate(curDate());
-    if (kind === 'delivery_noprice') return 'DeliveryReport_' + fmtDate(curDate());
-    return 'LoadingReport_' + fmtDate(curDate());
+function vehicleFileSuffix() {
+    if (!vehicleFilter) return '';
+    return '_' + (vehicleFilter === '__UNASSIGNED__' ? 'Unassigned' : vehicleFilter.replace(/[^A-Za-z0-9]+/g, ''));
 }
-function hasData() { if (!dayEntries().length) { toast('No entries on this day to export'); return false; } return true; }
+function fileBase(kind) {
+    const vs = vehicleFileSuffix();
+    if (kind === 'delivery') return 'CollectionReport_' + fmtDate(curDate()) + vs;
+    if (kind === 'delivery_noprice') return 'DeliveryReport_' + fmtDate(curDate()) + vs;
+    return 'LoadingReport_' + fmtDate(curDate()) + vs;
+}
+function hasData() { if (!activeEntries().length) { toast('No entries on this day to export' + (vehicleFilter ? ' for this vehicle' : '')); return false; } return true; }
 function freeReport() { $('report').innerHTML = ''; }
 
 let shareInFlight = false;
@@ -84,11 +89,11 @@ async function exportImage(kind) {
 function exportExcel() {
     if (!hasData()) return;
     if (typeof XLSX === 'undefined') return libMissing('Excel export');
-    const list = dayEntries(), agg = receiverAgg(list);
+    const list = activeEntries(), agg = receiverAgg(list);
     const wb = XLSX.utils.book_new();
 
     const s1 = [['S.No', 'Seller / Shop', 'Total Items', 'Receiver-wise Details']];
-    list.forEach((e, i) => s1.push([i + 1, e.name, entryTotal(e), e.receivers.map(r => r.code + ' (' + r.qty + ' ' + (r.type || 'Bag') + ')').join(', ')]));
+    list.forEach((e, i) => s1.push([i + 1, e.name, entryTotal(e), e.receivers.map(r => r.code + ' (' + r.qty + ' x ' + (r.type || 'Bag') + ')').join(', ')]));
     s1.push(['', 'TOTAL', list.reduce((s, e) => s + entryTotal(e), 0), '']);
     const ws1 = XLSX.utils.aoa_to_sheet(s1);
     ws1['!cols'] = [{ wch: 6 }, { wch: 24 }, { wch: 11 }, { wch: 42 }];
@@ -114,7 +119,7 @@ function exportExcel() {
         }
     }
 
-    XLSX.writeFile(wb, 'LemonTripSheet_' + fmtDate(curDate()) + '.xlsx');
+    XLSX.writeFile(wb, 'LemonTripSheet_' + fmtDate(curDate()) + vehicleFileSuffix() + '.xlsx');
     toast('Excel downloaded ✔');
 }
 
@@ -193,7 +198,7 @@ function exportStatementExcel() {
 
 /* ---------- Challan exports (non-financial) ---------- */
 async function challanCanvas(code) {
-    const agg = receiverAgg(dayEntries());
+    const agg = receiverAgg(activeEntries());
     const i = agg.findIndex(r => r.code === code);
     if (i < 0) return null;
     buildChallan(agg[i], i);
@@ -247,7 +252,7 @@ async function exportChallanImage(code) {
 async function exportAllChallans() {
     if (!hasData()) return;
     if (typeof html2canvas === 'undefined' || typeof window.jspdf === 'undefined') return libMissing('PDF export');
-    const agg = receiverAgg(dayEntries());
+    const agg = receiverAgg(activeEntries());
     if (!agg.length) { toast('No receivers on this day'); return; }
     toast('Preparing ' + agg.length + ' challans…');
     showSpinner('Generating All Challans...');
@@ -271,7 +276,7 @@ async function exportAllChallans() {
             }
         }
         freeReport();
-        await sharePdfBlob(pdf.output('blob'), 'Challans_' + fmtDate(curDate()) + '.pdf');
+        await sharePdfBlob(pdf.output('blob'), 'Challans_' + fmtDate(curDate()) + vehicleFileSuffix() + '.pdf');
     } catch (e) { console.error(e); toast('Challan export failed'); }
     finally { hideSpinner(); }
 }
@@ -279,7 +284,7 @@ async function exportAllChallans() {
 async function exportAllChallanImages() {
     if (!hasData()) return;
     if (typeof html2canvas === 'undefined' || typeof JSZip === 'undefined') return libMissing('ZIP export');
-    const agg = receiverAgg(dayEntries());
+    const agg = receiverAgg(activeEntries());
     if (!agg.length) { toast('No receivers on this day'); return; }
     toast('Preparing ' + agg.length + ' challan images…');
     showSpinner('Zipping Images...');
@@ -293,17 +298,18 @@ async function exportAllChallanImages() {
         }
         freeReport();
         const zipBlob = await zip.generateAsync({ type: 'blob' });
-        await shareOrDownload(zipBlob, 'Challans_Images_' + fmtDate(curDate()) + '.zip', 'application/zip');
+        await shareOrDownload(zipBlob, 'Challans_Images_' + fmtDate(curDate()) + vehicleFileSuffix() + '.zip', 'application/zip');
     } catch (e) { console.error(e); toast('ZIP export failed'); }
     finally { hideSpinner(); }
 }
 
 function whatsAppText(kind) {
-    const list = dayEntries(), agg = receiverAgg(list);
+    const list = activeEntries(), agg = receiverAgg(list);
     const bags = list.reduce((s, e) => s + entryTotal(e), 0);
+    const vehTag = vehicleFilter ? ' 🚚 (' + (vehicleFilter === '__UNASSIGNED__' ? 'Unassigned' : vehicleFilter) + ')' : '';
     const L = [];
     if (kind === 'delivery' || kind === 'delivery_noprice') {
-        L.push('🍋 *Delivery & Collection — ' + fmtDate(curDate()) + '*');
+        L.push('🍋 *Delivery & Collection — ' + fmtDate(curDate()) + vehTag + '*');
         L.push('_₹' + store.rate + ' per bag_');
         L.push('');
         agg.forEach(r => {
@@ -313,9 +319,9 @@ function whatsAppText(kind) {
         L.push('');
         L.push('*Total items: ' + bags + '  — collect ₹' + agg.reduce((s, x) => s + (x.amount || 0), 0).toLocaleString('en-IN') + '*');
     } else {
-        L.push('🍋 *Loading Report — ' + fmtDate(curDate()) + '*');
+        L.push('🍋 *Loading Report — ' + fmtDate(curDate()) + vehTag + '*');
         L.push('');
-        list.forEach((e, i) => L.push((i + 1) + '. ' + e.name + ' — ' + entryTotal(e) + ' [' + e.receivers.map(r => r.code + ' (' + r.qty + ' ' + (r.type || 'Bag') + ')').join(', ') + ']'));
+        list.forEach((e, i) => L.push((i + 1) + '. ' + e.name + ' — ' + entryTotal(e) + ' [' + e.receivers.map(r => r.code + ' (' + r.qty + ' x ' + (r.type || 'Bag') + ')').join(', ') + ']'));
         L.push('');
         L.push('*Total loaded: ' + bags + ' items (' + list.length + ' sellers)*');
     }
@@ -324,4 +330,110 @@ function whatsAppText(kind) {
 function shareWhatsApp(kind) {
     if (!hasData()) return;
     window.open('https://wa.me/?text=' + encodeURIComponent(whatsAppText(kind)), '_blank');
+}
+
+/* ================= Audit exports (multi-vehicle, multi-day consolidated) ================= */
+function auditDateRange() {
+    const fD = $('auditFromDate') ? $('auditFromDate').value : '';
+    const tD = $('auditToDate') ? $('auditToDate').value : '';
+    if (!fD || !tD) { toast('From/To date தேர்ந்தெடுக்கவும்'); return null; }
+    if (fD > tD) { toast('From Date must be before To Date'); return null; }
+    return { fD, tD };
+}
+function auditFileBase(kind, fD, tD) {
+    const base = kind === 'loading' ? 'Audit_Loading' : kind === 'delivery' ? 'Audit_Collection' : 'Audit_Delivery';
+    return base + '_' + fmtDate(fD) + '_to_' + fmtDate(tD);
+}
+
+async function exportAuditPDF(kind) {
+    const range = auditDateRange(); if (!range) return;
+    const { fD, tD } = range;
+    if (typeof html2canvas === 'undefined' || typeof window.jspdf === 'undefined') return libMissing('PDF export');
+    toast('Preparing Audit PDF…');
+    showSpinner('Generating Audit PDF...');
+    try {
+        buildAuditReport(kind, fD, tD);
+        const pages = document.querySelectorAll('#report .report-page');
+        const pdf = new window.jspdf.jsPDF({ unit: 'mm', format: 'a4', orientation: 'portrait' });
+        const pageW = 210, pageH = 297, margin = 8;
+        const imgW = pageW - margin * 2;
+        for (let i = 0; i < pages.length; i++) {
+            const canvas = await html2canvas(pages[i], { scale: 2, backgroundColor: '#ffffff' });
+            if (i > 0) pdf.addPage();
+            let imgH = canvas.height * imgW / canvas.width;
+            if (imgH > pageH - margin * 2) {
+                imgH = pageH - margin * 2;
+                const adjustedW = canvas.width * imgH / canvas.height;
+                const offsetX = margin + (imgW - adjustedW) / 2;
+                pdf.addImage(canvas.toDataURL('image/jpeg', 0.96), 'JPEG', offsetX, margin, adjustedW, imgH);
+            } else {
+                pdf.addImage(canvas.toDataURL('image/jpeg', 0.96), 'JPEG', margin, margin, imgW, imgH);
+            }
+        }
+        freeReport();
+        await shareOrDownload(pdf.output('blob'), auditFileBase(kind, fD, tD) + '.pdf', 'application/pdf');
+    } catch (e) { console.error(e); toast('Audit PDF export failed'); }
+    finally { hideSpinner(); }
+}
+
+function exportAuditExcel() {
+    const range = auditDateRange(); if (!range) return;
+    const { fD, tD } = range;
+    if (typeof XLSX === 'undefined') return libMissing('Excel export');
+
+    const wb = XLSX.utils.book_new();
+
+    const loadRows = auditLoadingRows(fD, tD);
+    const s1 = [['Date', 'Vehicle', 'Seller / Shop', 'Bags', 'Receiver Split']];
+    loadRows.forEach(r => s1.push([fmtDate(r.date), r.vehicle, r.name, r.bags, r.receivers.map(x => x.code + ' (' + x.qty + ' x ' + (x.type || 'Bag') + ')').join(', ')]));
+    const tb1 = loadRows.reduce((s, r) => s + r.bags, 0);
+    s1.push(['', '', 'TOTAL', tb1, '']);
+    const ws1 = XLSX.utils.aoa_to_sheet(s1);
+    ws1['!cols'] = [{ wch: 12 }, { wch: 16 }, { wch: 22 }, { wch: 8 }, { wch: 42 }];
+    XLSX.utils.book_append_sheet(wb, ws1, 'Consolidated Loading');
+
+    const delRows = auditDeliveryRows(fD, tD);
+    const s2 = [['Vehicle', 'Receiver', 'Bags', 'Amount (Rs)']];
+    delRows.forEach(r => s2.push([r.vehicle, r.code, r.bags, r.amount]));
+    const tb2 = delRows.reduce((s, r) => s + r.bags, 0);
+    const ta2 = delRows.reduce((s, r) => s + r.amount, 0);
+    s2.push(['', 'TOTAL', tb2, ta2]);
+    const ws2 = XLSX.utils.aoa_to_sheet(s2);
+    ws2['!cols'] = [{ wch: 16 }, { wch: 14 }, { wch: 8 }, { wch: 14 }];
+    XLSX.utils.book_append_sheet(wb, ws2, 'Consolidated Delivery');
+
+    const vehRows = auditVehicleAgg(fD, tD);
+    const s3 = [['Vehicle', 'Seller Loads', 'Bags', 'Amount (Rs)']];
+    vehRows.forEach(r => s3.push([r.vehicle, r.sellers, r.bags, r.amount]));
+    const ws3 = XLSX.utils.aoa_to_sheet(s3);
+    ws3['!cols'] = [{ wch: 16 }, { wch: 14 }, { wch: 10 }, { wch: 14 }];
+    XLSX.utils.book_append_sheet(wb, ws3, 'Vehicle Summary');
+
+    const typeRows = auditItemTypeAgg(fD, tD);
+    const s4 = [['Item Type', 'Total Qty']];
+    typeRows.forEach(r => s4.push([r.type, r.qty]));
+    s4.push(['TOTAL', typeRows.reduce((s, r) => s + r.qty, 0)]);
+    const ws4 = XLSX.utils.aoa_to_sheet(s4);
+    ws4['!cols'] = [{ wch: 20 }, { wch: 12 }];
+    XLSX.utils.book_append_sheet(wb, ws4, 'Item Type Breakdown');
+
+    const s5 = [['Profit & Loss — ' + fmtDate(fD) + ' to ' + fmtDate(tD)], []];
+    const allV = ['', ...allVehicles()];
+    s5.push(['Vehicle', 'Collection (Rs)', 'Load Man Wages (Rs)', 'Driver Salary (Rs)', 'Cleaner Salary (Rs)',
+        ...EXPENSE_TYPES.map(t => t.label + ' (Rs)'), 'Total Cost (Rs)', 'Net Profit/Loss (Rs)']);
+    allV.forEach(v => {
+        const r = profitLossReport(fD, tD, v);
+        if (r.collection === 0 && r.totalCost === 0) return;
+        s5.push([v || 'Unassigned', r.collection, r.loadMan, r.driverTotal, r.cleanerTotal,
+            ...EXPENSE_TYPES.map(t => r.expByType[t.key] || 0), r.totalCost, r.profit]);
+    });
+    const grand = profitLossReport(fD, tD, '');
+    s5.push(['GRAND TOTAL (All Vehicles)', grand.collection, grand.loadMan, grand.driverTotal, grand.cleanerTotal,
+        ...EXPENSE_TYPES.map(t => grand.expByType[t.key] || 0), grand.totalCost, grand.profit]);
+    const ws5 = XLSX.utils.aoa_to_sheet(s5);
+    ws5['!cols'] = [{ wch: 16 }, { wch: 14 }, { wch: 16 }, { wch: 14 }, { wch: 14 }, { wch: 12 }, { wch: 12 }, { wch: 16 }, { wch: 10 }, { wch: 12 }, { wch: 14 }, { wch: 16 }];
+    XLSX.utils.book_append_sheet(wb, ws5, 'Profit & Loss');
+
+    XLSX.writeFile(wb, 'Audit_' + fmtDate(fD) + '_to_' + fmtDate(tD) + '.xlsx');
+    toast('Audit Excel downloaded ✔');
 }

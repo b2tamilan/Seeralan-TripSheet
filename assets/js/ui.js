@@ -12,9 +12,42 @@ document.querySelectorAll('nav.tabs button').forEach(btn => {
         document.querySelectorAll('nav.tabs button').forEach(b => b.classList.toggle('active', b === btn));
         document.querySelectorAll('.tab-page').forEach(p => p.classList.toggle('active', p.id === 'page-' + btn.dataset.tab));
         if (btn.dataset.tab === 'analytics') renderAnalytics();
+        if (btn.dataset.tab === 'audit') renderAudit();
+        if (btn.dataset.tab === 'expenses') renderExpensesTab();
         window.scrollTo({ top: 0 });
     });
 });
+
+/* ================= Vehicle Filter (multi-vehicle) ================= */
+// '' = all vehicles, '__UNASSIGNED__' = entries with no vehicle set, otherwise exact vehicle text
+let vehicleFilter = '';
+
+function activeEntries() {
+    const list = dayEntries();
+    if (!vehicleFilter) return list;
+    if (vehicleFilter === '__UNASSIGNED__') return list.filter(e => !e.vehicle);
+    return list.filter(e => e.vehicle === vehicleFilter);
+}
+function vehicleFilterOptionsHTML() {
+    let html = `<option value="">🔁 எல்லா வண்டிகளும் (All)</option>`;
+    html += `<option value="__UNASSIGNED__">❔ குறிப்பிடப்படாதது (Unassigned)</option>`;
+    allVehicles().forEach(v => html += `<option value="${esc(v)}">${esc(v)}</option>`);
+    return html;
+}
+function syncVehicleFilterUI() {
+    [$('vehicleFilterTrip'), $('vehicleFilterRecv')].forEach(sel => {
+        if (!sel) return;
+        sel.innerHTML = vehicleFilterOptionsHTML();
+        sel.value = vehicleFilter;
+    });
+}
+function setVehicleFilter(val) {
+    vehicleFilter = val;
+    syncVehicleFilterUI();
+    renderDashboards();
+}
+if ($('vehicleFilterTrip')) $('vehicleFilterTrip').addEventListener('change', e => setVehicleFilter(e.target.value));
+if ($('vehicleFilterRecv')) $('vehicleFilterRecv').addEventListener('change', e => setVehicleFilter(e.target.value));
 
 /* ================= Entry form ================= */
 function recvRowHTML(code = '', qty = '', type = '') {
@@ -67,6 +100,7 @@ $('recvRows').addEventListener('keydown', e => {
 $('recvRows').addEventListener('input', updateFormTotal);
 function readForm() {
     const name = $('inName').value.trim();
+    const vehicle = $('inVehicle') ? $('inVehicle').value.trim() : '';
     const receivers = [];
     $('recvRows').querySelectorAll('.recv-row').forEach(row => {
         const code = row.querySelector('.code').value.trim().toUpperCase();
@@ -80,7 +114,7 @@ function readForm() {
             receivers.push({ code, type, qty, rate });
         }
     });
-    return { name, receivers };
+    return { name, vehicle, receivers };
 }
 function updateFormTotal() {
     $('formTotal').textContent = readForm().receivers.reduce((s, r) => s + r.qty, 0);
@@ -88,6 +122,8 @@ function updateFormTotal() {
 function resetForm() {
     editIndex = -1;
     $('inName').value = '';
+    // Note: vehicle field is intentionally NOT cleared here — one vehicle usually
+    // carries loads from several sellers per trip, so keeping it saves re-typing.
     $('recvRows').innerHTML = '';
     addRecvRow();
     updateFormTotal();
@@ -154,6 +190,7 @@ function editEntry(i) {
     const e = dayEntries()[i]; if (!e) return;
     editIndex = i;
     $('inName').value = e.name;
+    if ($('inVehicle')) $('inVehicle').value = e.vehicle || '';
     $('recvRows').innerHTML = '';
     e.receivers.forEach(r => addRecvRow(r.code, r.qty, r.type));
     updateFormTotal();
@@ -251,6 +288,8 @@ function renderDatalists() {
     const receivers = allPartyNames('receivers');
     $('nameList').innerHTML = sellers.map(n => `<option value="${esc(n)}">`).join('');
     $('recvList').innerHTML = receivers.map(n => `<option value="${esc(n)}">`).join('');
+    if ($('vehicleList')) $('vehicleList').innerHTML = allVehicles().map(v => `<option value="${esc(v)}">`).join('');
+    syncVehicleFilterUI();
 
     let payCodeHtml = '';
     receivers.forEach(r => payCodeHtml += `<option value="${esc(r)}">${esc(r)}</option>`);
@@ -268,8 +307,8 @@ function renderEntries() {
     <div class="entry-item">
       <div class="entry-sno">${i + 1}</div>
       <div class="entry-mid">
-        <div class="entry-name">${esc(e.name)} — <b>${entryTotal(e)} items</b></div>
-        <div class="chips">${e.receivers.map(r => `<span class="chip" style="background:${getHslColor(r.code)}; border: 1px solid rgba(0,0,0,0.06); color: #1d2510">${esc(r.code)} · ${r.qty} ${esc(r.type || 'Bag')}</span>`).join('')}</div>
+        <div class="entry-name">${esc(e.name)} ${e.vehicle ? `<span class="chip" style="background:#eef2e3;border:1px solid #d4e0cd">🚚 ${esc(e.vehicle)}</span>` : ''} — <b>${entryTotal(e)} items</b></div>
+        <div class="chips">${e.receivers.map(r => `<span class="chip" style="background:${getHslColor(r.code)}; border: 1px solid rgba(0,0,0,0.06); color: #1d2510">${esc(r.code)} · ${r.qty} × ${esc(r.type || 'Bag')}</span>`).join('')}</div>
       </div>
       <div class="entry-acts">
         <button class="icon-btn" onclick="editEntry(${i})" title="Edit">✏️</button>
@@ -285,7 +324,7 @@ function tripTableHTML(list) {
     <tbody>${list.map((e, i) => `<tr>
       <td>${i + 1}</td><td><b>${esc(e.name)}</b></td>
       <td class="num"><b>${entryTotal(e)}</b></td>
-      <td>${e.receivers.map(r => esc(r.code) + ' (' + r.qty + ' ' + esc(r.type || 'Bag') + ')').join(', ')}</td>
+      <td>${e.receivers.map(r => esc(r.code) + ' (' + r.qty + ' x ' + esc(r.type || 'Bag') + ')').join(', ')}</td>
     </tr>`).join('')}</tbody>
     <tfoot><tr><td></td><td>TOTAL — ${list.length} sellers</td><td class="num">${total}</td><td></td></tr></tfoot>
   </table></div>`;
@@ -305,24 +344,12 @@ function recvTableHTML(agg) {
   </table></div>`;
 }
 function renderDashboards() {
-    const list = dayEntries(), agg = receiverAgg(list);
+    const list = activeEntries(), agg = receiverAgg(list);
     const bags = list.reduce((s, e) => s + entryTotal(e), 0);
-    $('tripDate').textContent = fmtDate(curDate());
-    $('recvDate').textContent = fmtDate(curDate());
+    $('tripDate').textContent = fmtDate(curDate()) + (vehicleFilter ? ' · 🚚 ' + (vehicleFilter === '__UNASSIGNED__' ? 'Unassigned' : vehicleFilter) : '');
+    $('recvDate').textContent = fmtDate(curDate()) + (vehicleFilter ? ' · 🚚 ' + (vehicleFilter === '__UNASSIGNED__' ? 'Unassigned' : vehicleFilter) : '');
     $('stSellers').textContent = list.length;
     $('stBags').textContent = bags;
-
-    // Injecting Driver Info Component
-    if (!$('driverInfoCont')) {
-        $('tripTable').insertAdjacentHTML('beforebegin', `
-          <div id="driverInfoCont" style="display:flex; gap:10px; margin-bottom:10px;">
-            <input type="text" id="inDriverName" class="plain" placeholder="Driver Name" value="${esc(store.driverInfo.name || '')}" style="flex:1;border:1px solid #dfe6cf;padding:6px;border-radius:6px;">
-            <input type="text" id="inVehicleNo" class="plain" placeholder="Vehicle No." value="${esc(store.driverInfo.vehicle || '')}" style="flex:1;border:1px solid #dfe6cf;padding:6px;border-radius:6px;">
-          </div>
-        `);
-        $('inDriverName').addEventListener('input', e => { store.driverInfo.name = e.target.value.trim(); save(); });
-        $('inVehicleNo').addEventListener('input', e => { store.driverInfo.vehicle = e.target.value.trim().toUpperCase(); save(); });
-    }
 
     let totalAmt = 0;
     list.forEach(e => e.receivers.forEach(r => {
@@ -333,6 +360,8 @@ function renderDashboards() {
 
     $('tripTable').innerHTML = tripTableHTML(list);
     $('recvTable').innerHTML = recvTableHTML(agg);
+    if ($('tripTypeBreakdown')) $('tripTypeBreakdown').innerHTML = bagsByTypeHTML(list);
+    if ($('recvTypeBreakdown')) $('recvTypeBreakdown').innerHTML = bagsByTypeHTML(list);
     renderChallanList(agg);
 }
 function renderChallanList(agg) {
@@ -383,6 +412,8 @@ function renderAll() {
         renderEntries(); renderDashboards(); renderDatalists(); renderDays();
         renderLedger(); renderPayments(); renderMasters();
         if (typeof renderItemTypes === 'function') renderItemTypes();
+        if (typeof renderAudit === 'function') renderAudit();
+        if (typeof renderExpensesTab === 'function') renderExpensesTab();
     }, 10);
 }
 
@@ -390,12 +421,16 @@ function renderItemTypes() {
     const list = $('itemTypesList');
     if (!list) return;
     list.innerHTML = store.itemTypes.map((it, i) => `
-    <div style="display:flex; gap:8px; align-items:center; background:var(--chip); padding:8px 12px; border-radius:10px;">
+    <div style="display:flex; flex-wrap:wrap; gap:8px; align-items:center; background:var(--chip); padding:8px 12px; border-radius:10px;">
       <input type="radio" name="defaultItemType" ${it.default ? 'checked' : ''} onchange="setDefaultItemType(${i})" title="Set as default">
-      <input type="text" value="${esc(it.name)}" onchange="updateItemType(${i}, 'name', this.value)" style="flex:1" placeholder="Item Name (e.g. 50 Kg Bag)">
-      <div style="display:flex;align-items:center;background:#fff;border-radius:10px;border:1.5px solid var(--line);overflow:hidden">
-        <span style="padding:0 8px;color:var(--muted);font-size:.85rem;border-right:1.5px solid var(--line)">₹</span>
-        <input type="number" value="${it.rate}" onchange="updateItemType(${i}, 'rate', this.value)" style="width:70px;border:none;border-radius:0;text-align:right" min="0">
+      <input type="text" value="${esc(it.name)}" onchange="updateItemType(${i}, 'name', this.value)" style="flex:1;min-width:110px" placeholder="Item Name (e.g. 50 Kg Bag)">
+      <div style="display:flex;align-items:center;background:#fff;border-radius:10px;border:1.5px solid var(--line);overflow:hidden" title="Collection rate charged to receiver">
+        <span style="padding:0 8px;color:var(--muted);font-size:.75rem;border-right:1.5px solid var(--line)">₹/collect</span>
+        <input type="number" value="${it.rate}" onchange="updateItemType(${i}, 'rate', this.value)" style="width:60px;border:none;border-radius:0;text-align:right" min="0">
+      </div>
+      <div style="display:flex;align-items:center;background:#fff;border-radius:10px;border:1.5px solid var(--line);overflow:hidden" title="Load Man wage per unit loaded">
+        <span style="padding:0 8px;color:var(--muted);font-size:.75rem;border-right:1.5px solid var(--line)">₹/loadman</span>
+        <input type="number" value="${it.loadManRate || 0}" onchange="updateItemType(${i}, 'loadManRate', this.value)" style="width:60px;border:none;border-radius:0;text-align:right" min="0">
       </div>
       <button class="icon-btn red" onclick="deleteItemType(${i})" title="Delete" style="flex:0 0 34px">🗑️</button>
     </div>
@@ -404,6 +439,7 @@ function renderItemTypes() {
 
 function updateItemType(i, field, val) {
     if (field === 'rate') store.itemTypes[i].rate = +val;
+    if (field === 'loadManRate') store.itemTypes[i].loadManRate = +val;
     if (field === 'name') store.itemTypes[i].name = val;
     save(); autoBackup();
     toast('Item type updated');
@@ -501,12 +537,269 @@ function renderAnalytics() {
     }, 50);
 }
 
+/* ================= Audit (multi-vehicle, multi-day consolidated) ================= */
+function renderAudit() {
+    if (!$('page-audit') || !$('page-audit').classList.contains('active')) return;
+    if (!$('auditFromDate').value) $('auditFromDate').value = curDate();
+    if (!$('auditToDate').value) $('auditToDate').value = curDate();
+    const f = $('auditFromDate').value, t = $('auditToDate').value;
+    if (f > t) { toast('From Date must be before To Date'); return; }
+
+    const rows = auditVehicleAgg(f, t);
+    const totalSellers = rows.reduce((s, r) => s + r.sellers, 0);
+    const totalBags = rows.reduce((s, r) => s + r.bags, 0);
+    const totalAmt = rows.reduce((s, r) => s + r.amount, 0);
+
+    $('auditStats').innerHTML = `
+      <div class="stat"><div class="v">${rows.length}</div><div class="l">Vehicles</div></div>
+      <div class="stat"><div class="v">${totalBags}</div><div class="l">Total Bags</div></div>
+      <div class="stat"><div class="v">${inr(totalAmt)}</div><div class="l">Total Amount</div></div>`;
+
+    const typeRows = auditItemTypeAgg(f, t);
+    $('auditTypeTable').innerHTML = typeRows.length ? `<div class="tbl-wrap"><table>
+      <thead><tr><th>Item Type</th><th class="num">Total Qty</th></tr></thead>
+      <tbody>${typeRows.map(r => `<tr><td><b>${esc(r.type)}</b></td><td class="num">${r.qty}</td></tr>`).join('')}</tbody>
+      <tfoot><tr><td>TOTAL</td><td class="num">${typeRows.reduce((s, r) => s + r.qty, 0)}</td></tr></tfoot>
+    </table></div>` : '<div class="empty">தரவு இல்லை.</div>';
+
+    $('auditVehicleTable').innerHTML = rows.length ? `<div class="tbl-wrap"><table>
+      <thead><tr><th>#</th><th>Vehicle</th><th class="num">Seller Loads</th><th class="num">Bags</th><th class="num">Amount</th></tr></thead>
+      <tbody>${rows.map((r, i) => `<tr>
+        <td>${i + 1}</td><td><b>🚚 ${esc(r.vehicle)}</b></td>
+        <td class="num">${r.sellers}</td><td class="num">${r.bags}</td><td class="num money">${inr(r.amount)}</td>
+      </tr>`).join('')}</tbody>
+      <tfoot><tr><td></td><td>TOTAL — ${rows.length} vehicles</td><td class="num">${totalSellers}</td><td class="num">${totalBags}</td><td class="num">${inr(totalAmt)}</td></tr></tfoot>
+    </table></div>` : '<div class="empty"><span class="big">🔍</span>தேர்ந்தெடுத்த காலகட்டத்தில் தரவு இல்லை.</div>';
+}
+
+function buildAuditReport(kind, fromD, toD) {
+    const dateRangeStr = fmtDate(fromD) + ' to ' + fmtDate(toD);
+    const hidePrice = kind === 'delivery_noprice';
+    let title, headRow, rowsHtml = [], totalBags = 0, totalAmt = 0, vehicleCount = 0;
+
+    if (kind === 'loading') {
+        title = '🍋 Consolidated Loading Report — All Vehicles';
+        headRow = `<tr><th>Date</th><th>Vehicle</th><th>Seller / Shop</th><th class="num">Bags</th><th>Receiver Split</th></tr>`;
+        const rows = auditLoadingRows(fromD, toD);
+        const vehicles = [...new Set(rows.map(r => r.vehicle))];
+        vehicleCount = vehicles.length;
+        vehicles.forEach(v => {
+            rowsHtml.push(`<tr style="background:#eef2e3"><td colspan="5"><b>🚚 ${esc(v)}</b></td></tr>`);
+            let subBags = 0;
+            rows.filter(r => r.vehicle === v).forEach(r => {
+                subBags += r.bags;
+                rowsHtml.push(`<tr><td>${fmtDate(r.date)}</td><td></td><td><b>${esc(r.name)}</b></td><td class="num">${r.bags}</td>
+                  <td>${r.receivers.map(x => esc(x.code) + ' (' + x.qty + ' x ' + esc(x.type || 'Bag') + ')').join(', ')}</td></tr>`);
+            });
+            rowsHtml.push(`<tr style="font-weight:700"><td colspan="3" style="text-align:right">${esc(v)} Subtotal</td><td class="num">${subBags}</td><td></td></tr>`);
+            totalBags += subBags;
+        });
+    } else {
+        title = hidePrice ? '🍋 Consolidated Delivery Report — All Vehicles' : '🍋 Consolidated Delivery &amp; Collection — All Vehicles';
+        headRow = hidePrice
+            ? `<tr><th>Vehicle</th><th>Receiver</th><th class="num">Bags</th></tr>`
+            : `<tr><th>Vehicle</th><th>Receiver</th><th class="num">Bags</th><th class="num">Amount</th></tr>`;
+        const rows = auditDeliveryRows(fromD, toD);
+        const vehicles = [...new Set(rows.map(r => r.vehicle))];
+        vehicleCount = vehicles.length;
+        vehicles.forEach(v => {
+            rowsHtml.push(`<tr style="background:#eef2e3"><td colspan="${hidePrice ? 3 : 4}"><b>🚚 ${esc(v)}</b></td></tr>`);
+            let subBags = 0, subAmt = 0;
+            rows.filter(r => r.vehicle === v).forEach(r => {
+                subBags += r.bags; subAmt += r.amount;
+                rowsHtml.push(hidePrice
+                    ? `<tr><td></td><td><b>${esc(r.code)}</b></td><td class="num">${r.bags}</td></tr>`
+                    : `<tr><td></td><td><b>${esc(r.code)}</b></td><td class="num">${r.bags}</td><td class="num money">${inr(r.amount)}</td></tr>`);
+            });
+            rowsHtml.push(hidePrice
+                ? `<tr style="font-weight:700"><td colspan="2" style="text-align:right">${esc(v)} Subtotal</td><td class="num">${subBags}</td></tr>`
+                : `<tr style="font-weight:700"><td colspan="2" style="text-align:right">${esc(v)} Subtotal</td><td class="num">${subBags}</td><td class="num">${inr(subAmt)}</td></tr>`);
+            totalBags += subBags; totalAmt += subAmt;
+        });
+    }
+
+    if (!rowsHtml.length) {
+        $('report').innerHTML = `<div class="report-page">
+          <div class="repband"><div><h1>${title}</h1><div class="sub">Audit — Multi-Vehicle Consolidated</div></div><div class="datebox"><small>PERIOD</small>${dateRangeStr}</div></div>
+          <div class="empty" style="padding:40px 0">தேர்ந்தெடுத்த காலகட்டத்தில் தரவு இல்லை.</div>
+          ${repFoot()}
+        </div>`;
+        return $('report');
+    }
+
+    let pagesHtml = '';
+    const maxFirst = 16, maxNext = 24;
+    let idx = 0, pageNum = 1;
+    while (idx < rowsHtml.length) {
+        const isFirst = pageNum === 1;
+        const limit = isFirst ? maxFirst : maxNext;
+        const chunk = rowsHtml.slice(idx, idx + limit);
+        idx += limit;
+        const isLast = idx >= rowsHtml.length;
+
+        let footRow = '';
+        if (isLast) {
+            if (kind === 'loading') footRow = `<tfoot><tr><td colspan="3">GRAND TOTAL — ${vehicleCount} vehicles</td><td class="num">${totalBags}</td><td></td></tr></tfoot>`;
+            else if (hidePrice) footRow = `<tfoot><tr><td colspan="2">GRAND TOTAL — ${vehicleCount} vehicles</td><td class="num">${totalBags}</td></tr></tfoot>`;
+            else footRow = `<tfoot><tr><td colspan="2">GRAND TOTAL — ${vehicleCount} vehicles</td><td class="num">${totalBags}</td><td class="num">${inr(totalAmt)}</td></tr></tfoot>`;
+        }
+
+        pagesHtml += `
+      <div class="report-page">
+        ${isFirst ? `
+          <div class="repband">
+            <div><h1>${title}</h1><div class="sub">Audit — Multi-Vehicle Consolidated</div></div>
+            <div class="datebox"><small>PERIOD</small>${dateRangeStr}</div>
+          </div>
+          <div class="repstats">
+            <div class="repstat"><div class="v">${vehicleCount}</div><div class="l">Vehicles</div></div>
+            <div class="repstat"><div class="v">${totalBags}</div><div class="l">Total Bags</div></div>
+            ${kind !== 'loading' && !hidePrice ? `<div class="repstat gold"><div class="v">${inr(totalAmt)}</div><div class="l">Total Amount</div></div>` : ''}
+          </div>
+          <div class="chips" style="margin-bottom:14px">${auditItemTypeAgg(fromD, toD).map(r => `<span class="chip">📦 ${esc(r.type)}: <b>${r.qty}</b></span>`).join('')}</div>
+        ` : `
+          <div style="font-size:0.9rem; font-weight:bold; margin-bottom:10px; color:var(--leaf-dark); display:flex; justify-content:space-between;">
+            <span>${title} (Page ${pageNum})</span><span>${dateRangeStr}</span>
+          </div>
+        `}
+        <div class="tbl-wrap"><table>
+          <thead>${headRow}</thead>
+          <tbody>${chunk.join('')}</tbody>
+          ${footRow}
+        </table></div>
+        ${isLast ? repFoot() : ''}
+      </div>`;
+        pageNum++;
+    }
+    $('report').innerHTML = pagesHtml;
+    return $('report');
+}
+
+/* ================= Expenses / Salary / Profit & Loss ================= */
+function vehicleSelectOptionsHTML(includeAll) {
+    let html = includeAll ? `<option value="">🔁 எல்லா வண்டிகளும் (All)</option>` : '';
+    html += `<option value="">❔ குறிப்பிடப்படாதது (Unassigned)</option>`;
+    allVehicles().forEach(v => html += `<option value="${esc(v)}">${esc(v)}</option>`);
+    return html;
+}
+function renderExpensesTab() {
+    if (!$('page-expenses') || !$('page-expenses').classList.contains('active')) return;
+    const d = curDate();
+    $('salDateLabel').textContent = fmtDate(d);
+    $('expDateLabel').textContent = fmtDate(d);
+    $('expListDate').textContent = fmtDate(d);
+
+    // Vehicle selects (Unassigned + known vehicles). Keep current selection if still valid.
+    [['salVehicle', false], ['expVehicle', false], ['plVehicle', true]].forEach(([id, includeAll]) => {
+        const sel = $(id); if (!sel) return;
+        const prev = sel.value;
+        sel.innerHTML = vehicleSelectOptionsHTML(includeAll);
+        if ([...sel.options].some(o => o.value === prev)) sel.value = prev;
+    });
+
+    // Trip salary form reflects existing saved value for date+vehicle
+    const sv = $('salVehicle').value;
+    const ts = getTripSalary(d, sv);
+    $('salDriver').value = ts.driver || '';
+    $('salCleaner').value = ts.cleaner || '';
+
+    // Load man wages for today (all vehicles, or filtered by trip tab's vehicleFilter if set)
+    const todayEntries = dayEntries();
+    const lm = loadManWage(todayEntries);
+    const byType = bagsByType(todayEntries);
+    $('loadManToday').innerHTML = byType.length ? `<div class="tbl-wrap"><table>
+      <thead><tr><th>Item Type</th><th class="num">Qty</th><th class="num">₹/unit</th><th class="num">Amount</th></tr></thead>
+      <tbody>${byType.map(r => {
+        const itm = store.itemTypes.find(it => it.name === r.type);
+        const rate = itm ? (itm.loadManRate || 0) : 0;
+        return `<tr><td>${esc(r.type)}</td><td class="num">${r.qty}</td><td class="num">${rate}</td><td class="num money">${inr(r.qty * rate)}</td></tr>`;
+    }).join('')}</tbody>
+      <tfoot><tr><td colspan="3">TOTAL Load Man Wage — ${fmtDate(d)}</td><td class="num">${inr(lm)}</td></tr></tfoot>
+    </table></div>` : '<div class="empty">இன்று entries இல்லை.</div>';
+
+    renderExpenseList();
+
+    if (!$('plFromDate').value) $('plFromDate').value = d;
+    if (!$('plToDate').value) $('plToDate').value = d;
+    renderProfitLoss();
+}
+function saveTripSalary() {
+    const d = curDate(), v = $('salVehicle').value;
+    setTripSalary(d, v, $('salDriver').value, $('salCleaner').value);
+    save(); autoBackup();
+    toast('Trip salary saved for ' + fmtDate(d) + (v ? ' · 🚚 ' + v : ' · Unassigned') + ' ✔');
+    renderExpensesTab();
+}
+function saveExpense() {
+    const amt = +$('expAmt').value;
+    if (!(amt > 0)) { toast('Enter a valid amount'); $('expAmt').focus(); return; }
+    store.expenses.push({
+        date: curDate(),
+        vehicle: $('expVehicle').value,
+        type: $('expType').value,
+        amount: amt,
+        note: $('expNote').value.trim()
+    });
+    save(); autoBackup();
+    $('expAmt').value = ''; $('expNote').value = '';
+    toast('Expense saved ✔');
+    renderExpensesTab();
+}
+function deleteExpense(i) {
+    const x = store.expenses[i]; if (!x) return;
+    if (!confirm('Delete this ' + inr(x.amount) + ' expense?')) return;
+    store.expenses.splice(i, 1);
+    save(); autoBackup();
+    renderExpensesTab();
+}
+function renderExpenseList() {
+    const d = curDate();
+    const rows = store.expenses.map((x, i) => ({ ...x, i })).filter(x => x.date === d);
+    const box = $('expList');
+    if (!rows.length) { box.innerHTML = '<div class="empty">இன்றைக்கு expenses இல்லை.</div>'; return; }
+    const typeLabel = k => (EXPENSE_TYPES.find(t => t.key === k) || {}).label || k;
+    box.innerHTML = rows.map(x => `
+    <div class="chl-row">
+      <div class="who">${typeLabel(x.type)} — <span class="money">${inr(x.amount)}</span>
+        <small>${x.vehicle ? '🚚 ' + esc(x.vehicle) : 'Unassigned'}${x.note ? ' · ' + esc(x.note) : ''}</small></div>
+      <button class="icon-btn red" onclick="deleteExpense(${x.i})" title="Delete">🗑️</button>
+    </div>`).join('');
+}
+function renderProfitLoss() {
+    const f = $('plFromDate').value, t = $('plToDate').value, v = $('plVehicle').value;
+    if (!f || !t) return;
+    if (f > t) { $('plReport').innerHTML = '<div class="empty">From Date must be before To Date</div>'; return; }
+    const r = profitLossReport(f, t, v);
+    const typeLabel = k => (EXPENSE_TYPES.find(x => x.key === k) || {}).label || k;
+    $('plReport').innerHTML = `
+    <div class="stats" style="grid-template-columns:repeat(2,1fr)">
+      <div class="stat"><div class="v">${inr(r.collection)}</div><div class="l">Total Collection</div></div>
+      <div class="stat"><div class="v">${inr(r.totalCost)}</div><div class="l">Total Cost</div></div>
+    </div>
+    <div class="tbl-wrap"><table>
+      <thead><tr><th>Head</th><th class="num">Amount (₹)</th></tr></thead>
+      <tbody>
+        <tr><td>💰 Total Collection (Receiver-wise)</td><td class="num money">${inr(r.collection)}</td></tr>
+        <tr><td>👷 Load Man Wages</td><td class="num" style="color:var(--danger)">− ${inr(r.loadMan)}</td></tr>
+        <tr><td>🧑‍✈️ Driver Salary</td><td class="num" style="color:var(--danger)">− ${inr(r.driverTotal)}</td></tr>
+        <tr><td>🧹 Cleaner Salary</td><td class="num" style="color:var(--danger)">− ${inr(r.cleanerTotal)}</td></tr>
+        ${EXPENSE_TYPES.map(x => `<tr><td>${typeLabel(x.key)}</td><td class="num" style="color:var(--danger)">− ${inr(r.expByType[x.key] || 0)}</td></tr>`).join('')}
+      </tbody>
+      <tfoot><tr><td>${r.profit >= 0 ? '✅ Net Profit' : '⚠️ Net Loss'}</td><td class="num" style="color:${r.profit >= 0 ? 'var(--leaf-dark)' : 'var(--danger)'};font-size:1.05rem">${inr(Math.abs(r.profit))}</td></tr></tfoot>
+    </table></div>`;
+}
+['salVehicle'].forEach(id => { if ($(id)) $(id).addEventListener('change', () => { const d = curDate(); const ts = getTripSalary(d, $(id).value); $('salDriver').value = ts.driver || ''; $('salCleaner').value = ts.cleaner || ''; }); });
+if ($('plFromDate')) $('plFromDate').addEventListener('change', renderProfitLoss);
+if ($('plToDate')) $('plToDate').addEventListener('change', renderProfitLoss);
+if ($('plVehicle')) $('plVehicle').addEventListener('change', renderProfitLoss);
+
 /* ================= Report DOMs (for PDF / image) ================= */
 function repFoot() { return `<div class="rep-foot">Generated on ${fmtDate(todayISO())} · Lemon Trip Sheet app</div>`; }
 
 function buildLoadingReport() {
-    const list = dayEntries();
+    const list = activeEntries();
     const totalBags = list.reduce((s, e) => s + entryTotal(e), 0);
+    const vehLabel = vehicleFilter ? (vehicleFilter === '__UNASSIGNED__' ? 'Unassigned' : vehicleFilter) : '';
 
     let pagesHtml = '';
     const maxFirst = 14;
@@ -523,7 +816,7 @@ function buildLoadingReport() {
         let bodyRows = chunk.map((e, idx) => `<tr>
       <td>${currentIdx - limit + idx + 1}</td><td><b>${esc(e.name)}</b></td>
       <td class="num"><b>${entryTotal(e)}</b></td>
-      <td>${e.receivers.map(r => esc(r.code) + ' (' + r.qty + ' ' + esc(r.type || 'Bag') + ')').join(', ')}</td>
+      <td>${e.receivers.map(r => esc(r.code) + ' (' + r.qty + ' x ' + esc(r.type || 'Bag') + ')').join(', ')}</td>
     </tr>`).join('');
 
         let isLast = currentIdx >= list.length;
@@ -533,7 +826,7 @@ function buildLoadingReport() {
       <div class="report-page">
         ${isFirst ? `
           <div class="repband">
-            <div><h1>🍋 Loading Report</h1><div class="sub">Seller-wise loading summary · Mahindra Veero</div></div>
+            <div><h1>🍋 Loading Report</h1><div class="sub">Seller-wise loading summary${vehLabel ? ' · 🚚 ' + esc(vehLabel) : ''}</div></div>
             <div class="datebox"><small>TRIP DATE</small>${fmtDate(curDate())}</div>
           </div>
           <div class="repstats">
@@ -561,13 +854,15 @@ function buildLoadingReport() {
 }
 
 function buildDeliveryReport(hidePrice = false) {
-    const list = dayEntries(), agg = receiverAgg(list);
+    const list = activeEntries(), agg = receiverAgg(list);
     const totalBags = agg.reduce((s, r) => s + r.bags, 0);
+    const vehLabel = vehicleFilter ? (vehicleFilter === '__UNASSIGNED__' ? 'Unassigned' : vehicleFilter) : '';
+    const vehSuffix = vehLabel ? ' · 🚚 ' + esc(vehLabel) : '';
 
     let headerBandClass = hidePrice ? "" : "gold";
     let headerTitle = hidePrice
-        ? `<h1>🍋 Delivery Report</h1><div class="sub">Receiver-wise delivery summary (Goods Only)</div>`
-        : `<h1>🍋 Delivery &amp; Collection Report</h1><div class="sub">Receiver-wise delivery · cash to collect @ ₹${store.rate} per bag</div>`;
+        ? `<h1>🍋 Delivery Report</h1><div class="sub">Receiver-wise delivery summary (Goods Only)${vehSuffix}</div>`
+        : `<h1>🍋 Delivery &amp; Collection Report</h1><div class="sub">Receiver-wise delivery · cash to collect @ ₹${store.rate} per bag${vehSuffix}</div>`;
 
     let repStatsHtml = hidePrice
         ? `<div class="repstat"><div class="v">${agg.length}</div><div class="l">Receivers</div></div>
@@ -783,12 +1078,13 @@ function buildStatementReport(code, fromStr, toStr) {
 }
 
 function buildChallan(r, idx) {
-    const no = 'DC-' + curDate().replace(/-/g, '') + '-' + String(idx + 1).padStart(2, '0');
+    const vShort = (vehicleFilter && vehicleFilter !== '__UNASSIGNED__') ? '-' + vehicleFilter.replace(/[^A-Za-z0-9]/g, '').slice(-4).toUpperCase() : '';
+    const no = 'DC-' + curDate().replace(/-/g, '') + vShort + '-' + String(idx + 1).padStart(2, '0');
     $('report').innerHTML = `
     <div class="report-page ch-wrap">
       <div class="ch-top">
-        <div><h1>🍋 Delivery Challan</h1><div class="sub">Goods delivery confirmation · Mahindra Veero</div></div>
-        <div class="ch-meta">Challan No: <b>${no}</b><br>Date: <b>${fmtDate(curDate())}</b></div>
+        <div><h1>🍋 Delivery Challan</h1><div class="sub">Goods delivery confirmation</div></div>
+        <div class="ch-meta">Challan No: <b>${no}</b><br>Date: <b>${fmtDate(curDate())}</b>${(vehicleFilter && vehicleFilter !== '__UNASSIGNED__') ? '<br>Vehicle: <b>' + esc(vehicleFilter) + '</b>' : ''}</div>
       </div>
       <div class="ch-to">
         <div><div class="lbl">Delivered To</div><div class="who">${esc(r.code)}</div></div>
@@ -1051,7 +1347,7 @@ function renderMasters() {
 if ($('partiesSearch')) $('partiesSearch').addEventListener('input', renderMasters);
 
 function syncRateInput() {
-    $('rateInput').value = store.rate;
+    if ($('rateInput')) $('rateInput').value = store.rate;
     $('autoBackupChk').checked = store.autoBackup;
 }
 $('autoBackupChk').addEventListener('change', e => {
@@ -1075,6 +1371,11 @@ $('restoreFile').addEventListener('change', ev => {
                 Object.assign(store.masters.receivers, inc.masters.receivers || {});
             }
             if (Array.isArray(inc.payments)) store.payments = inc.payments;
+            if (inc.tripSalaries) Object.assign(store.tripSalaries, inc.tripSalaries);
+            if (Array.isArray(inc.expenses)) {
+                const seen = new Set(store.expenses.map(x => JSON.stringify(x)));
+                inc.expenses.forEach(x => { const k = JSON.stringify(x); if (!seen.has(k)) { store.expenses.push(x); seen.add(k); } });
+            }
             save(); syncRateInput(); renderAll();
             toast('Restored ' + nDays + ' day(s) ✔');
         } catch (e) { toast('Not a valid backup file'); }
@@ -1221,7 +1522,7 @@ if (backupRow) {
     backupRow.insertAdjacentHTML('beforeend', `<button class="btn" style="background:#25D366;color:#fff;margin-top:8px;width:100%" onclick="shareBackupWhatsApp()"><span class="ico">💬</span> Share Backup to WhatsApp</button>`);
 }
 
-function shareBackupWhatsApp() {
+async function shareBackupWhatsApp() {
     const jsonStr = JSON.stringify(store, null, 2);
     const blob = new Blob([jsonStr], { type: 'application/json' });
     const dt = new Date();
@@ -1229,14 +1530,27 @@ function shareBackupWhatsApp() {
     const fn = 'LemonTripSheet_backup_' + ts + '.json';
     const file = new File([blob], fn, { type: 'application/json' });
 
-    if (navigator.share && navigator.canShare && navigator.canShare({ files: [file] })) {
-        navigator.share({
-            files: [file],
-            title: 'Lemon Trip Sheet Backup',
-            text: 'Here is the backup file from ' + fmtDate(curDate()) + '!'
-        }).catch(e => console.error(e));
-    } else {
-        toast('Web Share API not supported on this device/browser for files.');
+    // Many mobile browsers accept navigator.canShare({files}) for images/PDF/text
+    // but silently refuse .json — so we verify canShare AND actually attempt share,
+    // falling back to download + WhatsApp text (no file, but reliable) on any failure.
+    let shared = false;
+    try {
+        if (navigator.share && navigator.canShare && navigator.canShare({ files: [file] })) {
+            await navigator.share({
+                files: [file],
+                title: 'Lemon Trip Sheet Backup',
+                text: 'Here is the backup file from ' + fmtDate(curDate()) + '!'
+            });
+            shared = true;
+        }
+    } catch (e) {
+        if (e && e.name === 'AbortError') { shared = true; /* user cancelled, don't fall back */ }
+    }
+    if (!shared) {
+        // Fallback: download the file locally, then open WhatsApp so the user can attach it manually.
+        downloadBlob(blob, fn);
+        toast('இந்த phone-ல் WhatsApp-க்கு நேரடியாக file அனுப்ப முடியவில்லை. "' + fn + '" downloads-ல் சேமிக்கப்பட்டது — WhatsApp திறந்து 📎 Document ஆக attach செய்யவும்.');
+        setTimeout(() => window.open('https://wa.me/?text=' + encodeURIComponent('🍋 Lemon Trip Sheet backup (' + fmtDate(curDate()) + ') — attaching file separately.'), '_blank'), 1200);
     }
 }
 
@@ -1330,6 +1644,12 @@ function changeDayBy(offset) {
     d.setDate(d.getDate() + offset);
     let zeroPad = n => String(n).padStart(2, '0');
     gotoDay(d.getFullYear() + '-' + zeroPad(d.getMonth() + 1) + '-' + zeroPad(d.getDate()));
+}
+if ($('auditFromDate')) {
+    $('auditFromDate').value = todayISO();
+    $('auditToDate').value = todayISO();
+    $('auditFromDate').addEventListener('change', renderAudit);
+    $('auditToDate').addEventListener('change', renderAudit);
 }
 syncRateInput();
 resetForm();

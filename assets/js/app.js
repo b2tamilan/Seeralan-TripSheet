@@ -1,7 +1,7 @@
 'use strict';
 /* ================= State ================= */
 const LS_KEY = 'lemonTripSheet_v1';
-let store = { rate: 250, autoBackup: true, days: {}, masters: { sellers: {}, receivers: {} }, payments: [], itemTypes: [], signature: null, driverInfo: {} };
+let store = { rate: 250, autoBackup: true, days: {}, masters: { sellers: {}, receivers: {} }, payments: [], itemTypes: [], signature: null, driverInfo: {}, tripSalaries: {}, expenses: [] };
 let editIndex = -1;
 let editPaymentIndex = -1;
 function load() {
@@ -13,11 +13,11 @@ function load() {
 
   if (!store.itemTypes || !Array.isArray(store.itemTypes) || store.itemTypes.length === 0) {
     store.itemTypes = [
-      { name: "50 Kg Bag", rate: 250 },
-      { name: "45 Kg Bag", rate: 250, default: true },
-      { name: "40 Kg Bag", rate: 200 },
-      { name: "25 Kg Bag", rate: 100 },
-      { name: "Crate (டிப்பர்)", rate: 100 }
+      { name: "50 Kg Bag", rate: 250, loadManRate: 20 },
+      { name: "45 Kg Bag", rate: 250, default: true, loadManRate: 20 },
+      { name: "40 Kg Bag", rate: 200, loadManRate: 20 },
+      { name: "25 Kg Bag", rate: 100, loadManRate: 10 },
+      { name: "Crate (டிப்பர்)", rate: 100, loadManRate: 10 }
     ];
   }
 
@@ -28,6 +28,8 @@ function load() {
   if (!store.masters.receivers || typeof store.masters.receivers !== 'object') store.masters.receivers = {};
   if (!Array.isArray(store.payments)) store.payments = [];
   if (!store.driverInfo || typeof store.driverInfo !== 'object') store.driverInfo = {};
+  if (!store.tripSalaries || typeof store.tripSalaries !== 'object') store.tripSalaries = {};
+  if (!Array.isArray(store.expenses)) store.expenses = [];
 
   if (store.signature) {
     window.signDataUrl = store.signature;
@@ -65,6 +67,24 @@ function curDate() { return $('curDate').value || todayISO(); }
 function dayEntries() { return store.days[curDate()] || []; }
 
 function entryTotal(e) { return e.receivers.reduce((s, r) => s + (+r.qty || 0), 0); }
+
+/* ================= Item-Type-wise Breakdown (50/45/40/25 Kg Bags, Crates, ...) ================= */
+// Returns [{type, qty}] sorted by qty desc, across a list of load entries (each entry has .receivers[])
+function bagsByType(entries) {
+  const map = new Map();
+  entries.forEach(e => e.receivers.forEach(r => {
+    const type = r.type || (store.itemTypes.find(it => it.default) || {}).name || 'Bag';
+    const qty = +r.qty || 0;
+    if (!qty) return;
+    map.set(type, (map.get(type) || 0) + qty);
+  }));
+  return [...map.entries()].map(([type, qty]) => ({ type, qty })).sort((a, b) => b.qty - a.qty);
+}
+function bagsByTypeHTML(entries) {
+  const rows = bagsByType(entries);
+  if (!rows.length) return '';
+  return `<div class="chips" style="margin-bottom:10px">${rows.map(r => `<span class="chip">📦 ${esc(r.type)}: <b>${r.qty}</b></span>`).join('')}</div>`;
+}
 
 function receiverAgg(entries) {
   const map = new Map();
@@ -284,6 +304,77 @@ function dailyTrendAgg(daysToLookBack = 15) {
   return trends;
 }
 
+/* ================= Vehicles (multi-vehicle support) ================= */
+// Vehicles are free-text (no master list needed — they change daily per user's workflow).
+// We just collect distinct values seen across all days for datalist/filter suggestions.
+function allVehicles() {
+  const set = new Set();
+  Object.values(store.days).forEach(list => list.forEach(e => { if (e.vehicle) set.add(e.vehicle); }));
+  return [...set].sort();
+}
+
+/* ================= Audit (multi-vehicle, multi-day consolidated) ================= */
+function auditItemTypeAgg(fromD, toD) {
+  const entries = [];
+  Object.keys(store.days).forEach(date => {
+    if (date < fromD || date > toD) return;
+    store.days[date].forEach(e => entries.push(e));
+  });
+  return bagsByType(entries);
+}
+function auditVehicleAgg(fromD, toD) {
+  const map = new Map();
+  Object.keys(store.days).forEach(date => {
+    if (date < fromD || date > toD) return;
+    store.days[date].forEach(e => {
+      const v = e.vehicle || 'Unassigned';
+      if (!map.has(v)) map.set(v, { vehicle: v, sellers: 0, bags: 0, amount: 0 });
+      const rec = map.get(v);
+      rec.sellers++;
+      rec.bags += entryTotal(e);
+      e.receivers.forEach(r => {
+        const rate = r.rate !== undefined ? r.rate : store.rate;
+        rec.amount += (+r.qty || 0) * rate;
+      });
+    });
+  });
+  return [...map.values()].sort((a, b) => a.vehicle.localeCompare(b.vehicle));
+}
+
+function auditLoadingRows(fromD, toD) {
+  const rows = [];
+  Object.keys(store.days).sort().forEach(date => {
+    if (date < fromD || date > toD) return;
+    store.days[date].forEach(e => {
+      rows.push({ date, vehicle: e.vehicle || 'Unassigned', name: e.name, bags: entryTotal(e), receivers: e.receivers });
+    });
+  });
+  rows.sort((a, b) => a.vehicle.localeCompare(b.vehicle) || a.date.localeCompare(b.date));
+  return rows;
+}
+
+function auditDeliveryRows(fromD, toD) {
+  const map = new Map();
+  Object.keys(store.days).forEach(date => {
+    if (date < fromD || date > toD) return;
+    store.days[date].forEach(e => {
+      const vehicle = e.vehicle || 'Unassigned';
+      e.receivers.forEach(r => {
+        const code = (r.code || '').toUpperCase();
+        const qty = +r.qty || 0;
+        if (!code || !qty) return;
+        const rate = r.rate !== undefined ? r.rate : store.rate;
+        const key = vehicle + '||' + code;
+        if (!map.has(key)) map.set(key, { vehicle, code, bags: 0, amount: 0 });
+        const rec = map.get(key);
+        rec.bags += qty;
+        rec.amount += qty * rate;
+      });
+    });
+  });
+  return [...map.values()].sort((a, b) => a.vehicle.localeCompare(b.vehicle) || a.code.localeCompare(b.code));
+}
+
 /* ================= Analytics ================= */
 function analyticsAgg() {
   const allSellers = {};
@@ -300,6 +391,85 @@ function analyticsAgg() {
     });
   });
   return { allSellers, allReceivers };
+}
+
+/* ================= Salary, Expenses & Profit/Loss ================= */
+const EXPENSE_TYPES = [
+  { key: 'diesel', label: 'Diesel ⛽' },
+  { key: 'petrol', label: 'Petrol ⛽' },
+  { key: 'vehicle', label: 'Vehicle Maintenance 🔧' },
+  { key: 'food', label: 'Food 🍱' },
+  { key: 'other', label: 'Other 📝' }
+];
+function tsKey(date, vehicle) { return date + '||' + (vehicle || '__UNASSIGNED__'); }
+function getTripSalary(date, vehicle) {
+  return store.tripSalaries[tsKey(date, vehicle)] || { driver: 0, cleaner: 0 };
+}
+function setTripSalary(date, vehicle, driver, cleaner) {
+  store.tripSalaries[tsKey(date, vehicle)] = { driver: +driver || 0, cleaner: +cleaner || 0 };
+}
+// Load Man wage for a set of load entries, using each item type's configured loadManRate
+function loadManWage(entries) {
+  let total = 0;
+  entries.forEach(e => e.receivers.forEach(r => {
+    const type = r.type || (store.itemTypes.find(it => it.default) || {}).name;
+    const itm = store.itemTypes.find(it => it.name === type);
+    const rate = itm ? (itm.loadManRate || 0) : 0;
+    total += (+r.qty || 0) * rate;
+  }));
+  return total;
+}
+function entriesInRange(fromD, toD, vehicle) {
+  const out = [];
+  Object.keys(store.days).forEach(date => {
+    if (date < fromD || date > toD) return;
+    store.days[date].forEach(e => {
+      const v = e.vehicle || '';
+      if (vehicle !== undefined && vehicle !== '' && v !== vehicle) return;
+      out.push(Object.assign({ __date: date }, e));
+    });
+  });
+  return out;
+}
+function expensesInRange(fromD, toD, vehicle) {
+  return store.expenses.filter(x => {
+    if (x.date < fromD || x.date > toD) return false;
+    if (vehicle !== undefined && vehicle !== '' && (x.vehicle || '') !== vehicle) return false;
+    return true;
+  });
+}
+function salariesInRange(fromD, toD, vehicle) {
+  const out = [];
+  Object.keys(store.tripSalaries).forEach(k => {
+    const idx = k.lastIndexOf('||');
+    const date = k.slice(0, idx);
+    let v = k.slice(idx + 2);
+    if (v === '__UNASSIGNED__') v = '';
+    if (date < fromD || date > toD) return;
+    if (vehicle !== undefined && vehicle !== '' && v !== vehicle) return;
+    const s = store.tripSalaries[k];
+    if ((s.driver || 0) + (s.cleaner || 0) > 0) out.push({ date, vehicle: v, driver: s.driver || 0, cleaner: s.cleaner || 0 });
+  });
+  return out.sort((a, b) => a.date.localeCompare(b.date));
+}
+// Full Profit & Loss for a date range (optionally filtered to one vehicle)
+function profitLossReport(fromD, toD, vehicle) {
+  const entries = entriesInRange(fromD, toD, vehicle);
+  const agg = receiverAgg(entries);
+  const collection = agg.reduce((s, r) => s + (r.amount || 0), 0);
+  const bags = agg.reduce((s, r) => s + (r.bags || 0), 0);
+  const loadMan = loadManWage(entries);
+  const sal = salariesInRange(fromD, toD, vehicle);
+  const driverTotal = sal.reduce((s, x) => s + x.driver, 0);
+  const cleanerTotal = sal.reduce((s, x) => s + x.cleaner, 0);
+  const exps = expensesInRange(fromD, toD, vehicle);
+  const expByType = {};
+  EXPENSE_TYPES.forEach(t => expByType[t.key] = 0);
+  exps.forEach(x => { expByType[x.type] = (expByType[x.type] || 0) + (+x.amount || 0); });
+  const expTotal = Object.values(expByType).reduce((s, v) => s + v, 0);
+  const totalCost = loadMan + driverTotal + cleanerTotal + expTotal;
+  const profit = collection - totalCost;
+  return { collection, bags, loadMan, driverTotal, cleanerTotal, expByType, expTotal, totalCost, profit };
 }
 
 /* ================= Manual Actions (Clear & Backup) ================= */
