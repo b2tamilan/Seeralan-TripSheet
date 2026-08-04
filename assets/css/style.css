@@ -965,6 +965,15 @@ details.paste summary {
   .brand small {
     display: none
   }
+
+  nav.tabs button {
+    font-size: .6rem;
+    padding: 5px 1px
+  }
+
+  nav.tabs button .ico {
+    font-size: 1.1rem
+  }
 }
 
 @media print {
