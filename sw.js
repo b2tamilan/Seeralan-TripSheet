@@ -1,5 +1,5 @@
 /* Lemon Trip Sheet — service worker: app shell + export libraries cached for offline use */
-const CACHE = 'lemon-tripsheet-v1';
+const CACHE = 'lemon-tripsheet-v2';
 const CORE = [
   './',
   './index.html',

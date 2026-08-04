@@ -29,7 +29,7 @@
 
   <header>
     <div class="head-row">
-      <div class="brand">🍋 Lemon Trip Sheet<small>Mahindra Veero &middot; Daily loads &amp; deliveries</small></div>
+      <div class="brand">🍋 Lemon Trip Sheet<small>Daily loads &amp; deliveries</small></div>
       <div class="date-controls" style="display:flex;align-items:center;gap:6px">
         <button class="btn btn-sm btn-ghost" id="prevDayBtn"
           style="padding:4px 8px;font-size:1.1rem;background:rgba(255,255,255,.14);color:#fff;border-radius:10px"
@@ -52,6 +52,10 @@
         <label class="fld">Seller / Shop Name (loading point)</label>
         <input type="text" id="inName" placeholder="e.g. தீசன்" list="nameList" autocomplete="off">
         <datalist id="nameList"></datalist>
+
+        <label class="fld">🚚 வண்டி (Vehicle No.) — விருப்பத்தேர்வு</label>
+        <input type="text" id="inVehicle" placeholder="e.g. TN45-AB-1234" list="vehicleList" autocomplete="off">
+        <datalist id="vehicleList"></datalist>
 
         <label class="fld">Receiver-wise Split (who gets how many bags)</label>
         <div id="recvRows"></div>
@@ -83,6 +87,10 @@
 
     <!-- ============ TAB: TRIP SHEET ============ -->
     <section class="tab-page" id="page-trip">
+      <div class="card" style="padding:10px 14px;margin-bottom:10px;display:flex;align-items:center;gap:10px">
+        <label class="fld" style="margin:0;white-space:nowrap">🚚 வண்டி:</label>
+        <select id="vehicleFilterTrip" style="flex:1"></select>
+      </div>
       <div class="stats">
         <div class="stat">
           <div class="v" id="stSellers">0</div>
@@ -106,12 +114,17 @@
       </div>
       <div class="card">
         <h2>🚚 Trip Sheet — Seller-wise (<span id="tripDate"></span>)</h2>
+        <div id="tripTypeBreakdown" style="margin-bottom:10px"></div>
         <div id="tripTable"></div>
       </div>
     </section>
 
     <!-- ============ TAB: RECEIVERS ============ -->
     <section class="tab-page" id="page-recv">
+      <div class="card" style="padding:10px 14px;margin-bottom:10px;display:flex;align-items:center;gap:10px">
+        <label class="fld" style="margin:0;white-space:nowrap">🚚 வண்டி:</label>
+        <select id="vehicleFilterRecv" style="flex:1"></select>
+      </div>
       <div class="exports recv-exports">
         <button class="btn btn-green" onclick="exportPDF('delivery')"><span class="ico">📄</span>Collection PDF</button>
         <button class="btn btn-green" onclick="exportPDF('delivery_noprice')"><span class="ico">📄</span>Delivery
@@ -123,7 +136,7 @@
       </div>
       <div class="card">
         <h2>📦 Delivery &amp; Collection — Receiver-wise (<span id="recvDate"></span>)</h2>
-        <p class="hint" style="margin-bottom:10px">Collection = bags × ₹<span id="rateShow">250</span> per bag.</p>
+        <div id="recvTypeBreakdown" style="margin-bottom:10px"></div>
         <div id="recvTable"></div>
       </div>
       <div class="card">
@@ -254,6 +267,106 @@
       </div>
     </section>
 
+    <!-- ============ TAB: AUDIT (all vehicles, multi-day consolidated) ============ -->
+    <section class="tab-page" id="page-audit">
+      <div class="card">
+        <h2>🔍 Audit — எல்லா வண்டிகளும் (Consolidated)</h2>
+        <p class="hint" style="margin-bottom:10px">தேர்ந்தெடுத்த காலகட்டத்தில் உள்ள எல்லா வண்டிகளின் மொத்த Trip / Delivery / Collection தரவு, வண்டி வாரியாக பிரிக்கப்பட்டு.</p>
+        <div style="display:flex;gap:10px;margin-bottom:12px">
+          <div style="flex:1">
+            <label class="fld" style="margin-top:0">From Date</label>
+            <input type="date" id="auditFromDate" class="plain">
+          </div>
+          <div style="flex:1">
+            <label class="fld" style="margin-top:0">To Date</label>
+            <input type="date" id="auditToDate" class="plain">
+          </div>
+        </div>
+        <div class="exports" style="grid-template-columns:repeat(2,1fr)">
+          <button class="btn btn-green" onclick="exportAuditPDF('loading')"><span class="ico">📄</span>Trip Sheet PDF</button>
+          <button class="btn btn-green" onclick="exportAuditPDF('delivery')"><span class="ico">📄</span>Collection PDF</button>
+          <button class="btn btn-yellow" onclick="exportAuditPDF('delivery_noprice')"><span class="ico">📄</span>Delivery PDF<br><small>(No Price)</small></button>
+          <button class="btn btn-ghost" onclick="exportAuditExcel()"><span class="ico">📊</span>All in Excel</button>
+        </div>
+      </div>
+      <div class="stats" id="auditStats"></div>
+      <div class="card">
+        <h2>📦 Item Type வாரியான சுருக்கம் (50/45/40/25 Kg Bags, Crates...)</h2>
+        <div id="auditTypeTable"></div>
+      </div>
+      <div class="card">
+        <h2>🚚 வண்டி வாரியான சுருக்கம்</h2>
+        <div id="auditVehicleTable"></div>
+      </div>
+    </section>
+
+    <!-- ============ TAB: EXPENSES (Salary + Trip Expenses + Profit/Loss) ============ -->
+    <section class="tab-page" id="page-expenses">
+      <div class="card">
+        <h2>🧑‍✈️ Driver &amp; Cleaner — Trip Salary</h2>
+        <p class="hint" style="margin-bottom:10px">தேர்ந்தெடுத்த நாள் &amp; வண்டிக்கான Trip Salary (ஒரு entry per day per vehicle).</p>
+        <label class="fld">🚚 வண்டி</label>
+        <select id="salVehicle"></select>
+        <div style="display:flex;gap:10px;margin-top:10px">
+          <div style="flex:1">
+            <label class="fld" style="margin-top:0">Driver Salary (₹)</label>
+            <input type="number" id="salDriver" min="0" inputmode="numeric" placeholder="0">
+          </div>
+          <div style="flex:1">
+            <label class="fld" style="margin-top:0">Cleaner Salary (₹)</label>
+            <input type="number" id="salCleaner" min="0" inputmode="numeric" placeholder="0">
+          </div>
+        </div>
+        <button class="btn btn-green btn-block" onclick="saveTripSalary()">💾 Save Salary for <span id="salDateLabel"></span></button>
+      </div>
+
+      <div class="card">
+        <h2>👷 Load Man Wages (auto-calculated)</h2>
+        <p class="hint" style="margin-bottom:10px">Item Type-க்கு Settings-ல் கொடுத்த ₹/loadman rate அடிப்படையில், இன்றைய load-களுக்கான ஆட்கூலி தானாக கணக்கிடப்படும்.</p>
+        <div id="loadManToday"></div>
+      </div>
+
+      <div class="card">
+        <h2>⛽ Trip Expenses — Diesel / Petrol / Vehicle / Food / Other</h2>
+        <label class="fld">🚚 வண்டி</label>
+        <select id="expVehicle"></select>
+        <label class="fld">Expense Type</label>
+        <select id="expType">
+          <option value="diesel">Diesel ⛽</option>
+          <option value="petrol">Petrol ⛽</option>
+          <option value="vehicle">Vehicle Maintenance 🔧</option>
+          <option value="food">Food 🍱</option>
+          <option value="other">Other 📝</option>
+        </select>
+        <label class="fld">Amount (₹)</label>
+        <input type="number" id="expAmt" min="0" inputmode="numeric" placeholder="e.g. 800">
+        <label class="fld">Note (optional)</label>
+        <input type="text" id="expNote" placeholder="e.g. Full tank, toll, lunch for 3...">
+        <button class="btn btn-yellow btn-block" onclick="saveExpense()">💾 Save Expense for <span id="expDateLabel"></span></button>
+      </div>
+      <div class="card">
+        <h2>📜 Expenses — <span id="expListDate"></span></h2>
+        <div id="expList"></div>
+      </div>
+
+      <div class="card">
+        <h2>💹 Profit &amp; Loss</h2>
+        <div style="display:flex;gap:10px;margin-bottom:12px">
+          <div style="flex:1">
+            <label class="fld" style="margin-top:0">From Date</label>
+            <input type="date" id="plFromDate" class="plain">
+          </div>
+          <div style="flex:1">
+            <label class="fld" style="margin-top:0">To Date</label>
+            <input type="date" id="plToDate" class="plain">
+          </div>
+        </div>
+        <label class="fld">🚚 வண்டி</label>
+        <select id="plVehicle" style="margin-bottom:12px"></select>
+        <div id="plReport"></div>
+      </div>
+    </section>
+
     <!-- ============ TAB: BACKUP ============ -->
     <section class="tab-page" id="page-backup">
       <div class="card">
@@ -276,7 +389,8 @@
         <h2>⚙️ Settings</h2>
 
         <label class="fld">Item Types &amp; Rates (₹)</label>
-        <p class="hint" style="margin-bottom:8px">Set default and manage available packing types and their rates.</p>
+        <p class="hint" style="margin-bottom:8px">Set default and manage available packing types, their collection rate (₹ paid by receiver), and Load Man wage (₹ paid to load man) per unit.
+          <br><b>Rate priority:</b> ஒரு receiver-க்கு Parties tab-ல் "Custom Rate" கொடுத்தால், அது இந்த item-type rate-ஐ mismatch செய்யாமல் override செய்யும் (அந்த receiver-க்கு எல்லா item types-க்கும் ஒரே custom rate பொருந்தும்). Custom Rate இல்லாத receivers-க்கு இங்கு கீழே கொடுக்கும் item-type rate பயன்படும்.</p>
         <div id="itemTypesList" style="display:flex;flex-direction:column;gap:8px;"></div>
         <button class="btn btn-ghost btn-sm" onclick="addItemType()" style="margin-top:8px">＋ Add Item Type</button>
 
@@ -322,6 +436,8 @@
     <button data-tab="recv"><span class="ico">📦</span>Receivers</button>
     <button data-tab="parties"><span class="ico">👥</span>Parties</button>
     <button data-tab="analytics"><span class="ico">📈</span>Analytics</button>
+    <button data-tab="audit"><span class="ico">🔍</span>Audit</button>
+    <button data-tab="expenses"><span class="ico">💰</span>Expenses</button>
     <button data-tab="backup"><span class="ico">🛟</span>Backup</button>
   </nav>
 
