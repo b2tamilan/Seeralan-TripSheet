@@ -1,9 +1,10 @@
 'use strict';
 /* ================= State ================= */
 const LS_KEY = 'lemonTripSheet_v1';
-let store = { rate: 250, autoBackup: true, days: {}, masters: { sellers: {}, receivers: {} }, payments: [], itemTypes: [], signature: null, driverInfo: {}, tripSalaries: {}, expenses: [] };
+let store = { rate: 250, autoBackup: true, days: {}, masters: { sellers: {}, receivers: {} }, payments: [], itemTypes: [], signature: null, driverInfo: {}, tripSalaries: {}, expenses: [], indents: [], adjustments: [] };
 let editIndex = -1;
 let editPaymentIndex = -1;
+let editAdjustmentIndex = -1;
 function load() {
   try {
     const raw = localStorage.getItem(LS_KEY);
@@ -30,6 +31,8 @@ function load() {
   if (!store.driverInfo || typeof store.driverInfo !== 'object') store.driverInfo = {};
   if (!store.tripSalaries || typeof store.tripSalaries !== 'object') store.tripSalaries = {};
   if (!Array.isArray(store.expenses)) store.expenses = [];
+  if (!Array.isArray(store.indents)) store.indents = [];
+  if (!Array.isArray(store.adjustments)) store.adjustments = [];
 
   if (store.signature) {
     window.signDataUrl = store.signature;
@@ -67,6 +70,28 @@ function curDate() { return $('curDate').value || todayISO(); }
 function dayEntries() { return store.days[curDate()] || []; }
 
 function entryTotal(e) { return e.receivers.reduce((s, r) => s + (+r.qty || 0), 0); }
+
+/* ================= Receiver-wise, Item-Type-wise Custom Rates ================= */
+// Rate priority for a given receiver code + item type:
+//   1) master.customRates[type]   — new per-item-type override
+//   2) master.customRate          — legacy single "all items" override (kept for old data)
+//   3) itemTypes[].rate           — item type's own default rate
+//   4) store.rate                 — final fallback
+function getReceiverItemRate(code, type) {
+  const master = store.masters.receivers[(code || '').toUpperCase()] || {};
+  if (master.customRates && typeof master.customRates[type] === 'number') return master.customRates[type];
+  if (typeof master.customRate === 'number') return master.customRate;
+  const itm = (store.itemTypes || []).find(it => it.name === type);
+  return itm ? itm.rate : store.rate;
+}
+// Human-readable summary of a receiver's custom rates, for the Parties list view
+function receiverRateSummaryText(m) {
+  const rates = (m && m.customRates) || {};
+  const keys = Object.keys(rates).filter(k => typeof rates[k] === 'number');
+  if (keys.length) return keys.map(k => esc(k) + ': ₹' + rates[k]).join(', ') + '/unit';
+  if (m && typeof m.customRate === 'number') return '₹' + m.customRate + '/unit (all items — legacy)';
+  return '';
+}
 
 /* ================= Item-Type-wise Breakdown (50/45/40/25 Kg Bags, Crates, ...) ================= */
 // Returns [{type, qty}] sorted by qty desc, across a list of load entries (each entry has .receivers[])
@@ -168,15 +193,20 @@ function ledgerRows() {
     store.days[date].forEach(e => e.receivers.forEach(r => {
       const c = r.code.toUpperCase();
       const appliedRate = r.rate !== undefined ? r.rate : store.rate;
-      if (!map[c]) map[c] = { bags: 0, charges: [], received: 0 };
+      if (!map[c]) map[c] = { bags: 0, charges: [], received: 0, deducted: 0 };
       map[c].bags += (+r.qty || 0);
       map[c].charges.push({ date: new Date(date), amount: (+r.qty || 0) * appliedRate });
     }));
   });
   store.payments.forEach(p => {
     const c = p.code.toUpperCase();
-    if (!map[c]) map[c] = { bags: 0, charges: [], received: 0 };
+    if (!map[c]) map[c] = { bags: 0, charges: [], received: 0, deducted: 0 };
     map[c].received += (+p.amount || 0);
+  });
+  (store.adjustments || []).forEach(a => {
+    const c = a.code.toUpperCase();
+    if (!map[c]) map[c] = { bags: 0, charges: [], received: 0, deducted: 0 };
+    map[c].deducted += (+a.amount || 0);
   });
 
   const today = new Date();
@@ -185,16 +215,18 @@ function ledgerRows() {
   return Object.keys(map).map(code => {
     const data = map[code];
     let totalCharges = data.charges.reduce((s, x) => s + x.amount, 0);
-    let balance = totalCharges - data.received;
+    let balance = totalCharges - data.received - data.deducted;
 
-    let remainingPayment = data.received;
+    // Payments AND deductions both reduce outstanding age (a damage write-off
+    // settles that portion of the bill just like cash received would).
+    let remainingSettled = data.received + data.deducted;
     data.charges.sort((a, b) => a.date - b.date);
     let oldestDate = null;
 
     if (balance > 0) {
       for (const chg of data.charges) {
-        if (remainingPayment >= chg.amount) {
-          remainingPayment -= chg.amount;
+        if (remainingSettled >= chg.amount) {
+          remainingSettled -= chg.amount;
         } else {
           oldestDate = chg.date;
           break;
@@ -208,7 +240,7 @@ function ledgerRows() {
       agingDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
     }
 
-    return { code, bags: data.bags, charges: totalCharges, received: data.received, balance, agingDays };
+    return { code, bags: data.bags, charges: totalCharges, received: data.received, deducted: data.deducted, balance, agingDays };
   }).sort((a, b) => b.balance - a.balance || a.code.localeCompare(b.code));
 }
 
@@ -261,6 +293,27 @@ function receiverStatementRows(code, fromD, toD) {
     }
   });
 
+  const ADJ_LABELS = { damage: 'Damage', shortage: 'Shortage', discount: 'Discount', other: 'Deduction' };
+  (store.adjustments || []).forEach(a => {
+    if (a.code.toUpperCase() === c) {
+      const amt = +a.amount || 0;
+      const label = (ADJ_LABELS[a.type] || 'Deduction') + (a.note ? ` (${a.note})` : '');
+      if (a.date < fromD) {
+        openingPayment += amt;
+      } else if (a.date <= toD) {
+        rows.push({
+          date: a.date,
+          seller: '🔻 ' + label,
+          bags: null,
+          rate: null,
+          amount: 0,
+          payment: amt,
+          isDeduction: true
+        });
+      }
+    }
+  });
+
   const openingBalance = openingAmount - openingPayment;
   if (openingBalance !== 0 || openingBags !== 0 || openingPayment !== 0) {
     rows.push({
@@ -302,6 +355,39 @@ function dailyTrendAgg(daysToLookBack = 15) {
     trends.push({ date: dateStr, items: totalItems });
   }
   return trends;
+}
+
+/* ================= Pickup Indents (Transport Orders) ================= */
+// A "Pickup Indent" is created the moment a seller calls in with a rough order
+// (seller + which receivers), before anyone knows exact bag/crate counts.
+// It gets "converted" into a real load Entry once the vehicle physically reaches
+// the seller's shop and items are counted — at which point its status flips to 'loaded'.
+function newIndentId() {
+  const d = new Date();
+  const p = n => String(n).padStart(2, '0');
+  const stamp = d.getFullYear() + p(d.getMonth() + 1) + p(d.getDate());
+  const seq = (store.indents || []).filter(x => x.id && x.id.startsWith('IND-' + stamp)).length + 1;
+  return 'IND-' + stamp + '-' + String(seq).padStart(2, '0');
+}
+function indentStatusLabel(status) {
+  return { pending: '🟡 Pending Pickup', loaded: '🔵 Loaded / Trip Started', closed: '⚪ Closed' }[status] || status;
+}
+function indentReceiverText(ind) {
+  return (ind.receivers || []).map(r => r.code + (r.note ? ' (' + r.note + ')' : '')).join(', ') || '—';
+}
+function pendingIndents() {
+  return (store.indents || []).filter(x => x.status === 'pending').sort((a, b) => (a.createdAt || '').localeCompare(b.createdAt || ''));
+}
+function doneIndents() {
+  return (store.indents || []).filter(x => x.status !== 'pending').sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || '')).slice(0, 20);
+}
+function deleteIndent(id) {
+  const i = (store.indents || []).findIndex(x => x.id === id);
+  if (i < 0) return;
+  if (!confirm('இந்த pickup indent-ஐ நீக்கலாமா?')) return;
+  store.indents.splice(i, 1);
+  save(); autoBackup(); renderAll();
+  toast('Indent deleted');
 }
 
 /* ================= Vehicles (multi-vehicle support) ================= */

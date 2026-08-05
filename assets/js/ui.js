@@ -107,10 +107,7 @@ function readForm() {
         const type = row.querySelector('.type').value;
         const qty = +row.querySelector('.qty').value || 0;
         if (code && qty > 0) {
-            const master = store.masters.receivers[code] || {};
-            const itm = store.itemTypes.find(it => it.name === type);
-            let rate = itm ? itm.rate : store.rate;
-            if (typeof master.customRate === 'number') rate = master.customRate;
+            const rate = getReceiverItemRate(code, type);
             receivers.push({ code, type, qty, rate });
         }
     });
@@ -121,6 +118,7 @@ function updateFormTotal() {
 }
 function resetForm() {
     editIndex = -1;
+    window.loadingIndentId = null;
     $('inName').value = '';
     // Note: vehicle field is intentionally NOT cleared here — one vehicle usually
     // carries loads from several sellers per trip, so keeping it saves re-typing.
@@ -142,8 +140,21 @@ $('saveBtn').addEventListener('click', () => {
     if (!store.days[d]) store.days[d] = [];
 
     const bk = store.autoBackup ? ' · backup ⬇' : '';
+    let indentMsg = '';
     if (editIndex >= 0) { store.days[d][editIndex] = e; toast('Entry updated ✔' + bk); }
-    else { store.days[d].push(e); toast(e.name + ' saved — ' + entryTotal(e) + ' items ✔' + bk); }
+    else {
+        store.days[d].push(e);
+        if (window.loadingIndentId) {
+            const ind = (store.indents || []).find(x => x.id === window.loadingIndentId);
+            if (ind) {
+                ind.status = 'loaded';
+                ind.loadedEntryRef = { date: d, index: store.days[d].length - 1 };
+                indentMsg = ' · Indent loaded ✔';
+            }
+        }
+        toast(e.name + ' saved — ' + entryTotal(e) + ' items ✔' + bk + indentMsg);
+    }
+    window.loadingIndentId = null;
     save(); resetForm(); renderAll(); autoBackup();
 });
 
@@ -209,6 +220,115 @@ function deleteEntry(i) {
     save(); autoBackup(); renderAll(); toast('Entry deleted');
 }
 
+/* ================= Pickup Indent (Orders tab) form ================= */
+function ordRecvRowHTML(code = '', note = '') {
+    return `<div class="recv-row">
+    <input class="code" type="text" placeholder="Receiver (e.g. UR)" list="recvList" value="${esc(code)}" autocomplete="off" style="flex:1.2">
+    <input class="note" type="text" placeholder="approx qty / note (e.g. 3 Bags)" value="${esc(note)}" style="flex:1.6">
+    <button class="del" type="button" title="Remove" tabindex="-1">✕</button>
+  </div>`;
+}
+function ordAddRecvRow(code = '', note = '') {
+    if (!$('ordRecvRows')) return;
+    $('ordRecvRows').insertAdjacentHTML('beforeend', ordRecvRowHTML(code, note));
+}
+if ($('ordAddRecvBtn')) $('ordAddRecvBtn').addEventListener('click', () => ordAddRecvRow());
+if ($('ordRecvRows')) $('ordRecvRows').addEventListener('click', e => {
+    if (e.target.classList.contains('del')) {
+        e.target.closest('.recv-row').remove();
+        if (!$('ordRecvRows').children.length) ordAddRecvRow();
+    }
+});
+function resetOrderForm() {
+    if (!$('ordSeller')) return;
+    $('ordSeller').value = '';
+    $('ordNote').value = '';
+    $('ordRecvRows').innerHTML = '';
+    ordAddRecvRow();
+}
+if ($('ordSaveBtn')) $('ordSaveBtn').addEventListener('click', () => {
+    const sellerName = $('ordSeller').value.trim();
+    if (!sellerName) { toast('Seller / shop பெயரை போடவும்'); $('ordSeller').focus(); return; }
+    const receivers = [];
+    $('ordRecvRows').querySelectorAll('.recv-row').forEach(row => {
+        const code = row.querySelector('.code').value.trim().toUpperCase();
+        const note = row.querySelector('.note').value.trim();
+        if (code) receivers.push({ code, note });
+    });
+    const indent = {
+        id: newIndentId(),
+        createdAt: new Date().toISOString(),
+        sellerName,
+        status: 'pending',
+        receivers,
+        note: $('ordNote').value.trim(),
+        loadedEntryRef: null
+    };
+    if (!store.indents) store.indents = [];
+    store.indents.push(indent);
+    save(); autoBackup(); renderAll();
+    resetOrderForm();
+    toast('Pickup Indent saved — ' + sellerName + ' ✔');
+});
+
+// Prefill the Entry form (name + receiver codes, blank qty) from a pending indent,
+// then jump to the Entry tab. window.loadingIndentId is checked on Save so we can
+// flip the indent's status once the actual load is recorded.
+function loadIndentToEntry(id) {
+    const ind = (store.indents || []).find(x => x.id === id);
+    if (!ind) return;
+    resetForm();
+    $('inName').value = ind.sellerName;
+    $('recvRows').innerHTML = '';
+    if (ind.receivers && ind.receivers.length) {
+        ind.receivers.forEach(r => addRecvRow(r.code, ''));
+    } else {
+        addRecvRow();
+    }
+    updateFormTotal();
+    window.loadingIndentId = id;
+    $('formTitle').textContent = '🚚 Loading Indent: ' + ind.sellerName + ' — bags/crates count போடவும்';
+    document.querySelector('nav.tabs button[data-tab=entry]').click();
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+    toast('Indent-லிருந்து prefill ஆனது — இப்போ actual bags/crates எண்ணிக்கை போடவும்');
+}
+function markIndentClosed(id) {
+    const ind = (store.indents || []).find(x => x.id === id);
+    if (!ind) return;
+    ind.status = 'closed';
+    save(); autoBackup(); renderAll();
+    toast('Indent closed');
+}
+function renderOrders() {
+    if (!$('pendingIndentList')) return;
+    const pending = pendingIndents();
+    $('pendingIndentList').innerHTML = pending.length ? pending.map(ind => `
+    <div class="entry-item">
+      <div class="entry-mid">
+        <div class="entry-name">${esc(ind.sellerName)} <span class="badge-aging aging-warn">Pending</span></div>
+        <div class="chips">${(ind.receivers || []).map(r => `<span class="chip">${esc(r.code)}${r.note ? ' · ' + esc(r.note) : ''}</span>`).join('') || '<span class="chip">Receiver குறிப்பிடப்படவில்லை</span>'}</div>
+        ${ind.note ? `<div class="brk" style="margin-top:4px">📝 ${esc(ind.note)}</div>` : ''}
+      </div>
+      <div class="entry-acts" style="flex-direction:column;gap:6px">
+        <button class="btn btn-green btn-sm" onclick="loadIndentToEntry('${esc(ind.id)}')">🚚 Load Now</button>
+        <button class="icon-btn red" onclick="deleteIndent('${esc(ind.id)}')" title="Delete">🗑️</button>
+      </div>
+    </div>`).join('') : '<div class="empty"><span class="big">📋</span>Pending pickup ஒன்றும் இல்லை. Seller போன் பண்ணும்போது மேலே "New Pickup Indent" போடவும்.</div>';
+
+    const done = doneIndents();
+    $('doneIndentList').innerHTML = done.length ? done.map(ind => `
+    <div class="entry-item">
+      <div class="entry-mid">
+        <div class="entry-name">${esc(ind.sellerName)} <span class="badge-aging aging-good">${indentStatusLabel(ind.status)}</span></div>
+        <div class="brk">${esc(indentReceiverText(ind))}${ind.loadedEntryRef ? ' · Loaded on ' + fmtDate(ind.loadedEntryRef.date) : ''}</div>
+      </div>
+      <div class="entry-acts">
+        ${ind.status === 'loaded' ? `<button class="btn btn-ghost btn-sm" onclick="markIndentClosed('${esc(ind.id)}')">Close</button>` : ''}
+        <button class="icon-btn red" onclick="deleteIndent('${esc(ind.id)}')" title="Delete">🗑️</button>
+      </div>
+    </div>`).join('') : '<div class="empty">Loaded/Closed indents இங்கே வரும்.</div>';
+}
+
 /* ================= Bulk paste import ================= */
 function splitCSVLine(line) {
     const out = []; let cur = '', inQ = false;
@@ -231,8 +351,7 @@ function parseReceivers(str) {
             const qty = sumPlus(m[2].replace(/\s+/g, ''));
             const code = m[1].trim().toUpperCase();
             if (qty > 0) {
-                const master = store.masters.receivers[code] || {};
-                const rate = typeof master.customRate === 'number' ? master.customRate : defType.rate;
+                const rate = getReceiverItemRate(code, defType.name);
                 out.push({ code, qty, type: defType.name, rate });
             }
         }
@@ -411,6 +530,7 @@ function renderAll() {
     _renderAllTimer = setTimeout(() => {
         renderEntries(); renderDashboards(); renderDatalists(); renderDays();
         renderLedger(); renderPayments(); renderMasters();
+        renderOrders(); renderAdjustments();
         if (typeof renderItemTypes === 'function') renderItemTypes();
         if (typeof renderAudit === 'function') renderAudit();
         if (typeof renderExpensesTab === 'function') renderExpensesTab();
@@ -1130,8 +1250,9 @@ function renderLedger() {
     if (!rows.length) { $('ledgerTable').innerHTML = '<div class="empty"><span class="big">💰</span>No deliveries or payments yet.</div>'; return; }
     const tb = rows.reduce((s, r) => ({ bags: s.bags + r.bags, charges: s.charges + r.charges, received: s.received + r.received, balance: s.balance + r.balance }), { bags: 0, charges: 0, received: 0, balance: 0 });
 
+    const tbDeducted = rows.reduce((s, r) => s + (r.deducted || 0), 0);
     $('ledgerTable').innerHTML = `<div class="tbl-wrap"><table>
-      <thead><tr><th>#</th><th>Receiver</th><th class="num">Items</th><th class="num">Charges</th><th class="num">Received</th><th class="num">Balance</th><th>Aging</th></tr></thead>
+      <thead><tr><th>#</th><th>Receiver</th><th class="num">Items</th><th class="num">Charges</th><th class="num">Received</th><th class="num">Deducted</th><th class="num">Balance</th><th>Aging</th></tr></thead>
       <tbody>${rows.map((r, i) => {
         let agingBadge = '';
         if (r.balance > 0) {
@@ -1145,10 +1266,11 @@ function renderLedger() {
         <td class="num">${r.bags}</td>
         <td class="num money">${inr(r.charges)}</td>
         <td class="num money" style="color:var(--leaf-dark)">${inr(r.received)}</td>
+        <td class="num money" style="color:var(--danger)">${r.deducted ? '− ' + inr(r.deducted) : '—'}</td>
         <td class="num money" style="color:var(--danger)"><b>${inr(r.balance)}</b></td>
         <td>${agingBadge}</td>
       </tr>`}).join('')}</tbody>
-      <tfoot><tr><td></td><td>TOTAL</td><td class="num">${tb.bags}</td><td class="num money">${inr(tb.charges)}</td><td class="num money">${inr(tb.received)}</td><td class="num money">${inr(tb.balance)}</td><td></td></tr></tfoot>
+      <tfoot><tr><td></td><td>TOTAL</td><td class="num">${tb.bags}</td><td class="num money">${inr(tb.charges)}</td><td class="num money">${inr(tb.received)}</td><td class="num money">${inr(tbDeducted)}</td><td class="num money">${inr(tb.balance)}</td><td></td></tr></tfoot>
     </table></div>`;
 }
 $('ledgerTable').addEventListener('click', e => {
@@ -1208,6 +1330,77 @@ function deletePayment(i) {
     save(); autoBackup(); renderAll(); toast('Payment deleted');
 }
 
+/* ================= Deductions (Damage / Shortage / Discount — no GST, no Credit Note) ================= */
+function saveAdjustment() {
+    const code = $('adjCode').value;
+    const amount = +$('adjAmt').value;
+    const date = $('adjDate').value || todayISO();
+    const type = $('adjType').value;
+    if (!code) { toast('Choose a receiver'); return; }
+    if (!(amount > 0)) { toast('Deduction amount போடவும்'); $('adjAmt').focus(); return; }
+
+    if (editAdjustmentIndex >= 0) {
+        store.adjustments[editAdjustmentIndex] = { date, code, amount, type, note: $('adjNote').value.trim() };
+        toast('Deduction updated!');
+        cancelAdjEdit();
+    } else {
+        store.adjustments.push({ date, code, amount, type, note: $('adjNote').value.trim() });
+        const bal = ledgerRows().find(r => r.code === code);
+        toast('₹' + amount.toLocaleString('en-IN') + ' deducted for ' + code + ' ✔ Balance: ' + inr(bal ? bal.balance : 0) + (store.autoBackup ? ' · backup ⬇' : ''));
+        $('adjAmt').value = ''; $('adjNote').value = '';
+    }
+    save(); autoBackup();
+    renderAll();
+}
+function editAdj(i) {
+    const a = store.adjustments[i];
+    $('adjCode').value = a.code;
+    $('adjDate').value = a.date;
+    $('adjAmt').value = a.amount;
+    $('adjType').value = a.type;
+    $('adjNote').value = a.note || '';
+    editAdjustmentIndex = i;
+    $('adjActionBlock').innerHTML = `
+      <div style="display:flex;gap:8px">
+        <button class="btn btn-danger btn-block" style="flex:1" onclick="saveAdjustment()">✏️ Update</button>
+        <button class="btn btn-ghost btn-block" style="flex:1" onclick="cancelAdjEdit()">Cancel</button>
+      </div>`;
+    window.scrollTo({ top: $('adjCode').offsetTop - 60, behavior: 'smooth' });
+}
+function cancelAdjEdit() {
+    editAdjustmentIndex = -1;
+    $('adjAmt').value = ''; $('adjNote').value = '';
+    $('adjActionBlock').innerHTML = `<button class="btn btn-danger btn-block" onclick="saveAdjustment()">💾 Save Deduction</button>`;
+}
+function deleteAdjustment(i) {
+    const a = store.adjustments[i]; if (!a) return;
+    if (!confirm('Delete deduction of ' + inr(a.amount) + ' for ' + a.code + ' on ' + fmtDate(a.date) + '?')) return;
+    store.adjustments.splice(i, 1);
+    if (editAdjustmentIndex === i) cancelAdjEdit();
+    save(); autoBackup(); renderAll(); toast('Deduction deleted');
+}
+function renderAdjustments() {
+    if (!$('adjCode')) return;
+    const codes = allPartyNames('receivers');
+    $('adjCode').innerHTML = '<option value="">— choose receiver —</option>' + codes.map(c => `<option value="${esc(c)}">${esc(c)}</option>`).join('');
+    const box = $('adjList');
+    if (!box) return;
+    if (!store.adjustments.length) { box.innerHTML = '<div class="empty">Deductions ஏதும் இல்லை.</div>'; return; }
+    const TYPE_LABEL = { damage: 'Damage 📦💥', shortage: 'Shortage ⚖️', discount: 'Discount 🏷️', other: 'Other 📝' };
+    const idx = store.adjustments.map((a, i) => i).sort((a, b) => store.adjustments[b].date.localeCompare(store.adjustments[a].date) || b - a).slice(0, 30);
+    box.innerHTML = idx.map(i => {
+        const a = store.adjustments[i];
+        return `<div class="chl-row">
+      <div class="who">${esc(a.code)} — <span class="money" style="color:var(--danger)">− ${inr(a.amount)}</span>
+        <small>${TYPE_LABEL[a.type] || a.type} · ${fmtDate(a.date)}${a.note ? ' · ' + esc(a.note) : ''}</small></div>
+      <div style="white-space:nowrap">
+        <button class="icon-btn" onclick="editAdj(${i})" title="Edit">✏️</button>
+        <button class="icon-btn red" onclick="deleteAdjustment(${i})" title="Delete">🗑️</button>
+      </div>
+    </div>`;
+    }).join('');
+}
+
 function renderPayments() {
     const sel = $('payCode');
     const codes = allPartyNames('receivers');
@@ -1259,8 +1452,16 @@ function masterSave(type, oldName) {
         phone: card.querySelector('.m-phone').value.trim()
     };
     if (type === 'receivers') {
-        const rateVal = card.querySelector('.m-rate').value;
-        if (rateVal) details.customRate = parseFloat(rateVal);
+        const customRates = {};
+        card.querySelectorAll('.m-itemrate').forEach(inp => {
+            const v = inp.value;
+            if (v !== '') customRates[inp.dataset.item] = parseFloat(v);
+        });
+        if (Object.keys(customRates).length) details.customRates = customRates;
+        // Preserve any legacy single-rate value already on this receiver (used as a
+        // fallback by getReceiverItemRate for item types not listed in customRates above).
+        const old = store.masters.receivers[oldName];
+        if (old && typeof old.customRate === 'number') details.customRate = old.customRate;
     }
     if (newName !== oldName) {
         if (allPartyNames(type).includes(newName)) { toast('"' + newName + '" already exists — pick a different name'); return; }
@@ -1297,13 +1498,26 @@ function masterDelete(type, name) {
 function masterRowHTML(type, name) {
     const m = store.masters[type][name] || { address: '', phone: '' };
     if (editingMaster && editingMaster.type === type && editingMaster.name === name) {
+        const customRates = (type === 'receivers' && m.customRates) ? m.customRates : {};
+        const itemRateInputsHtml = type === 'receivers' ? `
+        <div style="border-top:1px dashed var(--line);padding-top:8px;margin-top:2px">
+          <label class="fld" style="margin:0 0 6px">Item-wise Custom Rate (₹/unit) — leave blank to use the default item-type rate</label>
+          <div style="display:flex;flex-direction:column;gap:6px">
+            ${(store.itemTypes || []).map(it => `
+              <div class="rate-row">
+                <span style="flex:1;font-size:.82rem;color:var(--ink)">${esc(it.name)} <small style="color:var(--muted)">(default ₹${it.rate})</small></span>
+                <input type="number" class="m-itemrate" data-item="${esc(it.name)}" min="0" placeholder="₹${it.rate}" value="${typeof customRates[it.name] === 'number' ? customRates[it.name] : ''}">
+              </div>`).join('')}
+          </div>
+          ${typeof m.customRate === 'number' ? `<p class="hint" style="margin-top:6px">Note: an older single rate of ₹${m.customRate}/unit (for all items) is still saved for this receiver and will keep applying to any item type left blank above. Fill in a value above for an item to override it.</p>` : ''}
+        </div>` : '';
         return `<div class="chl-row" style="flex-wrap:wrap">
       <div class="who" style="flex-basis:100%">✏️ Editing: ${esc(name)}</div>
       <div style="flex-basis:100%;display:grid;gap:8px;margin-top:6px">
         <input type="text" class="m-name" placeholder="Name${type === 'receivers' ? ' / code' : ''}" value="${esc(name)}">
         <input type="text" class="m-addr" placeholder="Address / place" value="${esc(m.address)}">
         <input type="text" class="m-phone" placeholder="WhatsApp number (10 digits)" inputmode="tel" value="${esc(m.phone)}">
-        ${type === 'receivers' ? `<input type="number" class="m-rate" min="0" placeholder="Custom Rate / bag (optional)" value="${m.customRate || ''}">` : ''}
+        ${itemRateInputsHtml}
         <div style="display:flex;gap:8px">
           <button class="btn btn-green btn-sm" data-msave="${esc(name)}">💾 Save</button>
           <button class="btn btn-ghost btn-sm" data-mcancel="1">Cancel</button>
@@ -1313,10 +1527,11 @@ function masterRowHTML(type, name) {
     </div>`;
     }
     const wa = waLink(m.phone);
+    const rateSummary = type === 'receivers' ? receiverRateSummaryText(m) : '';
     return `<div class="chl-row">
     <div class="who">${esc(name)}
       <small>${m.address ? esc(m.address) : '<i>no address</i>'} · ${m.phone ? esc(m.phone) : '<i>no number</i>'}
-      ${type === 'receivers' && typeof m.customRate === 'number' ? ' · <br>💰 ₹' + m.customRate + '/bag' : ''}</small></div>
+      ${rateSummary ? ' · <br>💰 ' + rateSummary : ''}</small></div>
     ${wa ? `<a class="icon-btn" style="text-decoration:none;display:flex;align-items:center;justify-content:center;background:#e7f8ec" href="${wa}" target="_blank" title="WhatsApp chat">💬</a>` : ''}
     <button class="icon-btn" data-medit="${esc(name)}" title="Edit">✏️</button>
   </div>`;
@@ -1375,6 +1590,14 @@ $('restoreFile').addEventListener('change', ev => {
             if (Array.isArray(inc.expenses)) {
                 const seen = new Set(store.expenses.map(x => JSON.stringify(x)));
                 inc.expenses.forEach(x => { const k = JSON.stringify(x); if (!seen.has(k)) { store.expenses.push(x); seen.add(k); } });
+            }
+            if (Array.isArray(inc.adjustments)) {
+                const seenA = new Set(store.adjustments.map(x => JSON.stringify(x)));
+                inc.adjustments.forEach(x => { const k = JSON.stringify(x); if (!seenA.has(k)) { store.adjustments.push(x); seenA.add(k); } });
+            }
+            if (Array.isArray(inc.indents)) {
+                const existingIds = new Set(store.indents.map(x => x.id));
+                inc.indents.forEach(x => { if (!existingIds.has(x.id)) { store.indents.push(x); existingIds.add(x.id); } });
             }
             save(); syncRateInput(); renderAll();
             toast('Restored ' + nDays + ' day(s) ✔');
@@ -1633,6 +1856,8 @@ if ($('saveSignBtn')) {
 load();
 $('curDate').value = todayISO();
 $('payDate').value = todayISO();
+if ($('adjDate')) $('adjDate').value = todayISO();
+if ($('ordRecvRows')) ordAddRecvRow();
 $('curDate').addEventListener('change', () => { resetForm(); renderAll(); });
 if ($('prevDayBtn')) {
     $('prevDayBtn').addEventListener('click', () => changeDayBy(-1));
