@@ -164,6 +164,33 @@
       </div>
     </section>
 
+    <!-- ============ TAB: ORDERS (Pickup Indent / Dispatch Planning) ============ -->
+    <section class="tab-page" id="page-orders">
+      <div class="card">
+        <h2>📋 New Pickup Indent</h2>
+        <p class="hint" style="margin-bottom:8px">Seller போன் பண்ணி order கொடுக்கும்போது இங்கு உடனே பதிவு செய்யவும். Bags/Crates எண்ணிக்கை Seller கடைக்கு வண்டி போன பிறகுதான் "Entry" tab-ல சேர்க்கலாம்.</p>
+        <label class="fld">Seller / Shop Name</label>
+        <input type="text" id="ordSeller" placeholder="e.g. முரளி" list="nameList" autocomplete="off">
+        <label class="fld">Receiver-கள் (இந்த order-க்கு)</label>
+        <div id="ordRecvRows"></div>
+        <button class="btn btn-ghost btn-sm" id="ordAddRecvBtn" type="button">＋ Add receiver</button>
+        <label class="fld">குறிப்பு (Note)</label>
+        <input type="text" id="ordNote" placeholder="e.g. 8:45am போன் மூலம் வாங்கிய order">
+        <button class="btn btn-green btn-block" id="ordSaveBtn" type="button">💾 Save Pickup Indent</button>
+      </div>
+
+      <div class="card">
+        <h2>🟡 Pending Pickups — Dispatch Planning</h2>
+        <p class="hint" style="margin-bottom:10px">இன்னும் load ஆகாத orders. வண்டியை Seller கடைக்கு அனுப்பும்போது "🚚 Load Now" அழுத்தி Entry tab-ல bags/crates சேர்க்கவும்.</p>
+        <div id="pendingIndentList"></div>
+      </div>
+
+      <div class="card">
+        <h2>📜 Recent Loaded / Closed Indents</h2>
+        <div id="doneIndentList"></div>
+      </div>
+    </section>
+
     <!-- ============ TAB: PARTIES (masters + ledger) ============ -->
     <section class="tab-page" id="page-parties">
       <div class="card"
@@ -218,6 +245,32 @@
       <div class="card">
         <h2>📜 Payment History</h2>
         <div id="payList"></div>
+      </div>
+      <div class="card">
+        <h2>🔻 Record Deduction (Damage / Shortage / Discount)</h2>
+        <p class="hint" style="margin-bottom:10px">GST bill இல்லாததால் Credit Note தேவையில்லை — இது நேரடியா receiver-ன் balance-ல் இருந்து கழிக்கப்படும்.</p>
+        <label class="fld">Receiver</label>
+        <select id="adjCode"></select>
+        <label class="fld">Date</label>
+        <input type="date" id="adjDate" class="plain">
+        <label class="fld">Deduction Amount (₹)</label>
+        <input type="number" id="adjAmt" min="0" inputmode="numeric" placeholder="e.g. 250">
+        <label class="fld">Type</label>
+        <select id="adjType">
+          <option value="damage">Damage 📦💥</option>
+          <option value="shortage">Shortage (குறைவு) ⚖️</option>
+          <option value="discount">Discount 🏷️</option>
+          <option value="other">Other 📝</option>
+        </select>
+        <label class="fld">Note</label>
+        <input type="text" id="adjNote" placeholder="e.g. 2 bags transit-ல் கெட்டுப்போனது">
+        <div id="adjActionBlock">
+          <button class="btn btn-danger btn-block" onclick="saveAdjustment()">💾 Save Deduction</button>
+        </div>
+      </div>
+      <div class="card">
+        <h2>📜 Deduction History</h2>
+        <div id="adjList"></div>
       </div>
       <div class="card">
         <h2>🚚 Seller Masters</h2>
@@ -390,7 +443,7 @@
 
         <label class="fld">Item Types &amp; Rates (₹)</label>
         <p class="hint" style="margin-bottom:8px">Set default and manage available packing types, their collection rate (₹ paid by receiver), and Load Man wage (₹ paid to load man) per unit.
-          <br><b>Rate priority:</b> ஒரு receiver-க்கு Parties tab-ல் "Custom Rate" கொடுத்தால், அது இந்த item-type rate-ஐ mismatch செய்யாமல் override செய்யும் (அந்த receiver-க்கு எல்லா item types-க்கும் ஒரே custom rate பொருந்தும்). Custom Rate இல்லாத receivers-க்கு இங்கு கீழே கொடுக்கும் item-type rate பயன்படும்.</p>
+          <br><b>Rate priority:</b> Parties tab-ல் ஒரு receiver-க்கு குறிப்பிட்ட Item Type-க்கென Custom Rate கொடுத்தால், அது அந்த item-க்கு மட்டும் இந்த default rate-ஐ override செய்யும். அந்த receiver-க்கு அந்த item-க்கு custom rate இல்லை என்றால், இங்கு கீழே கொடுக்கும் item-type default rate பயன்படும்.</p>
         <div id="itemTypesList" style="display:flex;flex-direction:column;gap:8px;"></div>
         <button class="btn btn-ghost btn-sm" onclick="addItemType()" style="margin-top:8px">＋ Add Item Type</button>
 
@@ -434,6 +487,7 @@
     <button data-tab="entry" class="active"><span class="ico">✏️</span>Entry</button>
     <button data-tab="trip"><span class="ico">🚚</span>Trip Sheet</button>
     <button data-tab="recv"><span class="ico">📦</span>Receivers</button>
+    <button data-tab="orders"><span class="ico">📋</span>Orders</button>
     <button data-tab="parties"><span class="ico">👥</span>Parties</button>
     <button data-tab="analytics"><span class="ico">📈</span>Analytics</button>
     <button data-tab="audit"><span class="ico">🔍</span>Audit</button>
