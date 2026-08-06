@@ -995,3 +995,21 @@ details.paste summary {
     border: 1px solid #ddd
   }
 }
+
+/* ---------- Firebase role-based access ---------- */
+/* While the login overlay is showing, keep the app shell out of the way */
+body.fb-locked header,
+body.fb-locked main,
+body.fb-locked nav.tabs {
+  visibility: hidden;
+}
+
+/* Driver role: structurally hide anything that carries a ₹ amount.
+   (The underlying data for amounts still isn't fetched by the Driver's
+   Firestore rules in later sync phases — this CSS is a same-device
+   safety net for the interim/local-only stage.) */
+body.role-driver #statAmountBox,
+body.role-driver .amt-col,
+body.role-driver .amt-only {
+  display: none !important;
+}
