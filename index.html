@@ -18,19 +18,25 @@
   <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js" defer></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js" defer></script>
   <script src="https://cdn.jsdelivr.net/npm/chart.js" defer></script>
+  <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js" defer></script>
+  <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-auth-compat.js" defer></script>
+  <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore-compat.js" defer></script>
 
   <link rel="stylesheet" href="assets/css/style.css">
   <script src="assets/js/app.js" defer></script>
   <script src="assets/js/export.js" defer></script>
   <script src="assets/js/ui.js" defer></script>
+  <script src="assets/js/firebase-auth.js" defer></script>
 </head>
 
 <body>
 
   <header>
     <div class="head-row">
-      <div class="brand">🍋 Lemon Trip Sheet<small>Daily loads &amp; deliveries</small></div>
+      <div class="brand">🍋 Lemon Trip Sheet<small id="fbUserTag">Daily loads &amp; deliveries</small></div>
       <div class="date-controls" style="display:flex;align-items:center;gap:6px">
+        <button class="btn btn-sm btn-ghost" id="logoutBtn" title="Logout"
+          style="padding:4px 8px;font-size:1rem;background:rgba(255,255,255,.14);color:#fff;border-radius:10px">🚪</button>
         <button class="btn btn-sm btn-ghost" id="prevDayBtn"
           style="padding:4px 8px;font-size:1.1rem;background:rgba(255,255,255,.14);color:#fff;border-radius:10px"
           title="Previous Day">&lt;</button>
@@ -100,15 +106,15 @@
           <div class="v" id="stBags">0</div>
           <div class="l">Total Bags</div>
         </div>
-        <div class="stat">
+        <div class="stat" id="statAmountBox">
           <div class="v" id="stAmount">₹0</div>
           <div class="l">Total Amount to Collect (All Sellers)</div>
         </div>
       </div>
-      <div class="exports">
+      <div class="exports" id="tripExportsRow">
         <button class="btn btn-green" onclick="exportPDF('loading')"><span class="ico">📄</span>Loading PDF</button>
         <button class="btn btn-yellow" onclick="exportImage('loading')"><span class="ico">🖼️</span>Image</button>
-        <button class="btn btn-ghost" onclick="exportExcel()"><span class="ico">📊</span>Excel</button>
+        <button class="btn btn-ghost amt-only" onclick="exportExcel()"><span class="ico">📊</span>Excel</button>
         <button class="btn" style="background:#25D366;color:#fff" onclick="shareWhatsApp('loading')"><span
             class="ico">💬</span>WhatsApp</button>
       </div>
@@ -125,13 +131,13 @@
         <label class="fld" style="margin:0;white-space:nowrap">🚚 வண்டி:</label>
         <select id="vehicleFilterRecv" style="flex:1"></select>
       </div>
-      <div class="exports recv-exports">
-        <button class="btn btn-green" onclick="exportPDF('delivery')"><span class="ico">📄</span>Collection PDF</button>
+      <div class="exports recv-exports" id="recvExportsRow">
+        <button class="btn btn-green amt-only" onclick="exportPDF('delivery')"><span class="ico">📄</span>Collection PDF</button>
         <button class="btn btn-green" onclick="exportPDF('delivery_noprice')"><span class="ico">📄</span>Delivery
           PDF<br><small>(No Price)</small></button>
-        <button class="btn btn-yellow" onclick="exportImage('delivery')"><span class="ico">🖼️</span>Image</button>
-        <button class="btn btn-ghost" onclick="exportExcel()"><span class="ico">📊</span>Excel</button>
-        <button class="btn" style="background:#25D366;color:#fff" onclick="shareWhatsApp('delivery')"><span
+        <button class="btn btn-yellow amt-only" onclick="exportImage('delivery')"><span class="ico">🖼️</span>Image</button>
+        <button class="btn btn-ghost amt-only" onclick="exportExcel()"><span class="ico">📊</span>Excel</button>
+        <button class="btn amt-only" style="background:#25D366;color:#fff" onclick="shareWhatsApp('delivery')"><span
             class="ico">💬</span>WhatsApp</button>
       </div>
       <div class="card">
@@ -597,6 +603,20 @@
       }
     }
   </style>
+  <!-- Firebase Login Screen Overlay -->
+  <div id="fbLoginScreen"
+    style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:linear-gradient(135deg,#3e7c2b,#2d5c1f);z-index:1100;flex-direction:column;align-items:center;justify-content:center;color:#fff;padding:20px">
+    <div style="font-size:3.2rem;margin-bottom:6px">🍋</div>
+    <h1 style="margin-bottom:18px;font-size:1.3rem">Lemon Trip Sheet — Login</h1>
+    <form id="fbLoginForm" style="width:100%;max-width:320px;background:#fff;border-radius:14px;padding:22px;box-shadow:0 4px 20px rgba(0,0,0,.25)">
+      <label class="fld" style="margin-top:0">Email</label>
+      <input type="email" id="fbEmail" autocomplete="username" required placeholder="e.g. driver1@lemon.local">
+      <label class="fld">Password</label>
+      <input type="password" id="fbPassword" autocomplete="current-password" required placeholder="Password">
+      <div id="fbLoginError" style="color:#c0392b;font-size:.8rem;margin-top:8px;min-height:1.1em"></div>
+      <button type="submit" class="btn btn-green btn-block" style="margin-top:12px">🔓 Login</button>
+    </form>
+  </div>
 
 </body>
 
