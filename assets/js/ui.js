@@ -452,14 +452,14 @@ function recvTableHTML(agg) {
     if (!agg.length) return '<div class="empty"><span class="big">📦</span>No deliveries to show yet.</div>';
     const bags = agg.reduce((s, r) => s + r.bags, 0);
     return `<div class="tbl-wrap"><table>
-    <thead><tr><th>#</th><th>Receiver &amp; From Sellers</th><th class="num">Items</th><th class="num">Amount to Collect</th></tr></thead>
+    <thead><tr><th>#</th><th>Receiver &amp; From Sellers</th><th class="num">Items</th><th class="num amt-col">Amount to Collect</th></tr></thead>
     <tbody>${agg.map((r, i) => `<tr>
       <td>${i + 1}</td>
       <td><b>${esc(r.code)}</b><div class="brk">from ${esc(sourcesText(r))}</div></td>
       <td class="num"><b>${r.bags}</b></td>
-      <td class="num money">${inr(r.amount)}</td>
+      <td class="num money amt-col">${inr(r.amount)}</td>
     </tr>`).join('')}</tbody>
-    <tfoot><tr><td></td><td>TOTAL — ${agg.length} receivers</td><td class="num">${bags}</td><td class="num">${inr(agg.reduce((s, r) => s + (r.amount || 0), 0))}</td></tr></tfoot>
+    <tfoot><tr><td></td><td>TOTAL — ${agg.length} receivers</td><td class="num">${bags}</td><td class="num amt-col">${inr(agg.reduce((s, r) => s + (r.amount || 0), 0))}</td></tr></tfoot>
   </table></div>`;
 }
 function renderDashboards() {
