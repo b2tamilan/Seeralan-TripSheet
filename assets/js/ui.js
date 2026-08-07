@@ -150,12 +150,14 @@ $('saveBtn').addEventListener('click', () => {
                 ind.status = 'loaded';
                 ind.loadedEntryRef = { date: d, index: store.days[d].length - 1 };
                 indentMsg = ' · Indent loaded ✔';
+                if (typeof pushIndent === 'function') pushIndent(ind);
             }
         }
         toast(e.name + ' saved — ' + entryTotal(e) + ' items ✔' + bk + indentMsg);
     }
     window.loadingIndentId = null;
     save(); resetForm(); renderAll(); autoBackup();
+    if (typeof pushDayToCloud === 'function') pushDayToCloud(d);
 });
 
 const dupAlert = document.createElement('div');
@@ -218,6 +220,7 @@ function deleteEntry(i) {
     if (!store.days[curDate()].length) delete store.days[curDate()];
     if (editIndex === i) resetForm();
     save(); autoBackup(); renderAll(); toast('Entry deleted');
+    if (typeof pushDayToCloud === 'function') pushDayToCloud(curDate());
 }
 
 /* ================= Pickup Indent (Orders tab) form ================= */
@@ -269,6 +272,7 @@ if ($('ordSaveBtn')) $('ordSaveBtn').addEventListener('click', () => {
     save(); autoBackup(); renderAll();
     resetOrderForm();
     toast('Pickup Indent saved — ' + sellerName + ' ✔');
+    if (typeof pushIndent === 'function') pushIndent(indent);
 });
 
 // Prefill the Entry form (name + receiver codes, blank qty) from a pending indent,
@@ -298,6 +302,7 @@ function markIndentClosed(id) {
     ind.status = 'closed';
     save(); autoBackup(); renderAll();
     toast('Indent closed');
+    if (typeof pushIndent === 'function') pushIndent(ind);
 }
 function renderOrders() {
     if (!$('pendingIndentList')) return;
@@ -393,6 +398,7 @@ $('importBtn').addEventListener('click', () => {
     save(); renderAll(); autoBackup();
     $('pasteBox').value = errors.join('\n');
     toast('Imported ' + entries.length + ' entr' + (entries.length === 1 ? 'y' : 'ies') + (errors.length ? ' · ' + errors.length + ' line(s) left in box' : ' ✔'));
+    if (typeof pushDayToCloud === 'function') pushDayToCloud(d);
 });
 
 /* ================= Rendering ================= */
@@ -522,6 +528,7 @@ function renderDays() {
 function gotoDay(d) {
     $('curDate').value = d;
     renderAll();
+    if (typeof refreshDaySubscriptions === 'function') refreshDaySubscriptions();
     document.querySelector('nav.tabs button[data-tab=trip]').click();
 }
 let _renderAllTimer = null;
@@ -1858,7 +1865,7 @@ $('curDate').value = todayISO();
 $('payDate').value = todayISO();
 if ($('adjDate')) $('adjDate').value = todayISO();
 if ($('ordRecvRows')) ordAddRecvRow();
-$('curDate').addEventListener('change', () => { resetForm(); renderAll(); });
+$('curDate').addEventListener('change', () => { resetForm(); renderAll(); if (typeof refreshDaySubscriptions === 'function') refreshDaySubscriptions(); });
 if ($('prevDayBtn')) {
     $('prevDayBtn').addEventListener('click', () => changeDayBy(-1));
     $('nextDayBtn').addEventListener('click', () => changeDayBy(1));

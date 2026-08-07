@@ -113,6 +113,7 @@ if (fbAuth) {
   fbAuth.onAuthStateChanged(async (user) => {
     if (!user) {
       window.currentUser = null;
+      if (typeof stopAllSync === 'function') stopAllSync();
       showLoginScreen();
       return;
     }
@@ -134,6 +135,15 @@ if (fbAuth) {
       wrapIndentFilteringForSeller();
       applyRoleUI(window.currentUser);
       if (typeof renderAll === 'function') renderAll();
+      // One-time reconciliation: push whatever is already sitting in this
+      // device's localStorage for "today" BEFORE we start listening, so an
+      // empty cloud doc (first login after this update) can never overwrite
+      // entries someone already made locally today.
+      if (typeof pushDayToCloud === 'function' && store.days[todayISO()] && store.days[todayISO()].length) {
+        await pushDayToCloud(todayISO());
+      }
+      if (typeof refreshDaySubscriptions === 'function') refreshDaySubscriptions();
+      if (typeof subscribeIndents === 'function') subscribeIndents();
     } catch (e) {
       console.error(e);
       showLoginScreen('Login-ல் தவறு நடந்தது — மறுபடியும் முயற்சிக்கவும்.');

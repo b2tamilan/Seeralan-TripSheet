@@ -1,7 +1,7 @@
 'use strict';
 /* ================= State ================= */
 const LS_KEY = 'lemonTripSheet_v1';
-let store = { rate: 250, autoBackup: true, days: {}, masters: { sellers: {}, receivers: {} }, payments: [], itemTypes: [], signature: null, driverInfo: {}, tripSalaries: {}, expenses: [], indents: [], adjustments: [] };
+let store = { rate: 250, autoBackup: true, days: {}, masters: { sellers: {}, receivers: {} }, payments: [], itemTypes: [], signature: null, driverInfo: {}, tripSalaries: {}, expenses: [], indents: [], adjustments: [], trips: [] };
 let editIndex = -1;
 let editPaymentIndex = -1;
 let editAdjustmentIndex = -1;
@@ -388,6 +388,7 @@ function deleteIndent(id) {
   store.indents.splice(i, 1);
   save(); autoBackup(); renderAll();
   toast('Indent deleted');
+  if (typeof deleteIndentCloud === 'function') deleteIndentCloud(id);
 }
 
 /* ================= Vehicles (multi-vehicle support) ================= */
