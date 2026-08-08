@@ -98,6 +98,7 @@
         <label class="fld" style="margin:0;white-space:nowrap">🚚 வண்டி:</label>
         <select id="vehicleFilterTrip" style="flex:1"></select>
       </div>
+      <div class="card" id="tripControlCard"></div>
       <div class="stats">
         <div class="stat">
           <div class="v" id="stSellers">0</div>
@@ -123,6 +124,10 @@
         <h2>🚚 Trip Sheet — Seller-wise (<span id="tripDate"></span>)</h2>
         <div id="tripTypeBreakdown" style="margin-bottom:10px"></div>
         <div id="tripTable"></div>
+      </div>
+      <div class="card">
+        <h2>📜 Recent Trips</h2>
+        <div id="tripHistoryList"></div>
       </div>
     </section>
 
@@ -474,6 +479,14 @@
             file</button>
           <input type="file" id="restoreFile" accept=".json,application/json" style="display:none">
         </div>
+      </div>
+      <div class="card">
+        <h2>☁️ Cloud Sync Recovery</h2>
+        <p class="hint">இந்த device-ல் local-ஆ இருக்குற எல்லா நாட்களையும் ஒரே க்ளிக்-ல Firestore Cloud-க்கு push பண்ணும். இந்த
+          device-ல் தான் மிக சரியான/முழுமையான data இருக்குன்னு உறுதியா தெரிஞ்சா மட்டும் இதை பயன்படுத்தவும் — வேற
+          devices-லும் இதே data தெரியும்படி ஆகும்.</p>
+        <button class="btn btn-green btn-block" onclick="backfillAllDaysToCloud()">☁️ எல்லா Local Days-ஐயும் Cloud-க்கு
+          Sync பண்ணு</button>
       </div>
       <div class="card">
         <h2>🗓️ Saved Days</h2>
