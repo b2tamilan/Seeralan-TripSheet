@@ -97,7 +97,20 @@ function subscribeDay(date) {
   };
 
   const unsubOps = dayOpsRef(date).onSnapshot(snap => {
-    latestOps = snap.exists ? (snap.data().entries || []) : [];
+    if (!snap.exists) {
+      // This date has never been pushed to the cloud before (e.g. historical
+      // days from before Cloud Sync was turned on). An absent doc is NOT the
+      // same as "this day has zero entries" — treating it that way was the
+      // bug that wiped local data when navigating to old dates. Instead: if
+      // we have real local data for this date, push it up to seed the cloud;
+      // otherwise do nothing. Either way, never delete/overwrite local data
+      // based on a doc that simply doesn't exist yet.
+      if (!_applyingRemoteDay[date] && store.days[date] && store.days[date].length) {
+        pushDayToCloud(date);
+      }
+      return;
+    }
+    latestOps = snap.data().entries || [];
     applyMerge();
   }, e => console.error('days_ops listen failed for ' + date, e));
 
@@ -160,6 +173,22 @@ function subscribeIndents() {
 }
 function unsubscribeIndents() {
   if (_indentSub) { _indentSub(); _indentSub = null; }
+}
+
+// Manual, explicit recovery/safety-net action: push EVERY date currently in
+// local storage up to the cloud in one go. Useful after this bug-fix update,
+// or any time you want to be sure a device's full history is on Firestore
+// (e.g. run this once from whichever phone has the most complete data).
+async function backfillAllDaysToCloud() {
+  if (!fbDb || !window.currentUser) { toast('முதலில் Login பண்ணவும்'); return; }
+  const dates = Object.keys(store.days || {});
+  if (!dates.length) { toast('இந்த device-ல் local days எதுவும் இல்லை'); return; }
+  toast('☁️ ' + dates.length + ' நாட்கள் Cloud-க்கு sync ஆகுது... காத்திருங்க');
+  let ok = 0;
+  for (const d of dates) {
+    try { await pushDayToCloud(d); ok++; } catch (e) { console.error('Backfill failed for ' + d, e); }
+  }
+  toast('☁️ ' + ok + '/' + dates.length + ' நாட்கள் Cloud-க்கு sync ஆனது ✔');
 }
 
 function stopAllSync() {
