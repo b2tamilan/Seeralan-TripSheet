@@ -6,17 +6,42 @@ function toast(msg) {
     clearTimeout(t._h); t._h = setTimeout(() => t.classList.remove('show'), 2400);
 }
 
-/* ================= Tabs ================= */
-document.querySelectorAll('nav.tabs button').forEach(btn => {
-    btn.addEventListener('click', () => {
-        document.querySelectorAll('nav.tabs button').forEach(b => b.classList.toggle('active', b === btn));
-        document.querySelectorAll('.tab-page').forEach(p => p.classList.toggle('active', p.id === 'page-' + btn.dataset.tab));
-        if (btn.dataset.tab === 'analytics') renderAnalytics();
-        if (btn.dataset.tab === 'audit') renderAudit();
-        if (btn.dataset.tab === 'expenses') renderExpensesTab();
-        window.scrollTo({ top: 0 });
-    });
+/* ================= Tabs (bottom nav + hamburger drawer, shared) ================= */
+// Both the trimmed bottom nav (Entry/Trip/Receivers) and the full drawer menu
+// use the same data-tab buttons, so one function keeps them in sync no matter
+// which one the person tapped.
+function switchTab(tabName) {
+    document.querySelectorAll('[data-tab]').forEach(b => b.classList.toggle('active', b.dataset.tab === tabName));
+    document.querySelectorAll('.tab-page').forEach(p => p.classList.toggle('active', p.id === 'page-' + tabName));
+    if (tabName === 'analytics') renderAnalytics();
+    if (tabName === 'audit') renderAudit();
+    if (tabName === 'expenses') renderExpensesTab();
+    closeDrawer();
+    window.scrollTo({ top: 0 });
+}
+document.querySelectorAll('[data-tab]').forEach(btn => {
+    btn.addEventListener('click', () => switchTab(btn.dataset.tab));
 });
+
+/* ================= Hamburger Drawer (Sidebar Menu) ================= */
+function openDrawer() {
+    if (!$('drawerMenu')) return;
+    $('drawerMenu').classList.add('open');
+    $('drawerBackdrop').classList.add('show');
+}
+function closeDrawer() {
+    if (!$('drawerMenu')) return;
+    $('drawerMenu').classList.remove('open');
+    $('drawerBackdrop').classList.remove('show');
+}
+function toggleDrawer() {
+    if (!$('drawerMenu')) return;
+    $('drawerMenu').classList.contains('open') ? closeDrawer() : openDrawer();
+}
+if ($('hamburgerBtn')) $('hamburgerBtn').addEventListener('click', toggleDrawer);
+if ($('moreNavBtn')) $('moreNavBtn').addEventListener('click', toggleDrawer);
+if ($('drawerCloseBtn')) $('drawerCloseBtn').addEventListener('click', closeDrawer);
+if ($('drawerBackdrop')) $('drawerBackdrop').addEventListener('click', closeDrawer);
 
 /* ================= Vehicle Filter (multi-vehicle) ================= */
 // '' = all vehicles, '__UNASSIGNED__' = entries with no vehicle set, otherwise exact vehicle text
@@ -210,7 +235,7 @@ function editEntry(i) {
     $('formTitle').textContent = '✏️ Edit Entry #' + (i + 1);
     $('saveBtn').textContent = '💾 Update Entry';
     $('cancelEditBtn').style.display = 'block';
-    document.querySelector('nav.tabs button[data-tab=entry]').click();
+    switchTab('entry');
     window.scrollTo({ top: 0, behavior: 'smooth' });
 }
 function deleteEntry(i) {
@@ -292,7 +317,7 @@ function loadIndentToEntry(id) {
     updateFormTotal();
     window.loadingIndentId = id;
     $('formTitle').textContent = '🚚 Loading Indent: ' + ind.sellerName + ' — bags/crates count போடவும்';
-    document.querySelector('nav.tabs button[data-tab=entry]').click();
+    switchTab('entry');
     window.scrollTo({ top: 0, behavior: 'smooth' });
     toast('Indent-லிருந்து prefill ஆனது — இப்போ actual bags/crates எண்ணிக்கை போடவும்');
 }
@@ -614,7 +639,7 @@ function gotoTrip(date, vehicle) {
     $('curDate').value = date;
     setVehicleFilter(vehicle);
     if (typeof refreshDaySubscriptions === 'function') refreshDaySubscriptions();
-    document.querySelector('nav.tabs button[data-tab=trip]').click();
+    switchTab('trip');
     window.scrollTo({ top: 0 });
 }
 function renderDays() {
@@ -642,7 +667,7 @@ function gotoDay(d) {
     $('curDate').value = d;
     renderAll();
     if (typeof refreshDaySubscriptions === 'function') refreshDaySubscriptions();
-    document.querySelector('nav.tabs button[data-tab=trip]').click();
+    switchTab('trip');
 }
 let _renderAllTimer = null;
 function renderAll() {
@@ -1436,7 +1461,7 @@ function renderLedger() {
 
     const tbDeducted = rows.reduce((s, r) => s + (r.deducted || 0), 0);
     $('ledgerTable').innerHTML = `<div class="tbl-wrap"><table>
-      <thead><tr><th>#</th><th>Receiver</th><th class="num">Items</th><th class="num">Charges</th><th class="num">Received</th><th class="num">Deducted</th><th class="num">Balance</th><th>Aging</th></tr></thead>
+      <thead><tr><th>#</th><th>Receiver</th><th class="num">Items</th><th class="num">Charges</th><th class="num">Received</th><th class="num">Deducted</th><th class="num">Balance</th><th>Aging</th><th></th></tr></thead>
       <tbody>${rows.map((r, i) => {
         let agingBadge = '';
         if (r.balance > 0) {
@@ -1444,23 +1469,231 @@ function renderLedger() {
             else if (r.agingDays > 15) agingBadge = `<span class="badge-aging aging-warn">${r.agingDays}d</span>`;
             else agingBadge = `<span class="badge-aging aging-good">${r.agingDays}d</span>`;
         }
-        return `<tr>
+        return `<tr class="ledger-row" onclick="showStatement('${esc(r.code)}')" style="cursor:pointer">
         <td>${i + 1}</td>
-        <td><a href="#" onclick="showStatement('${esc(r.code)}');return false"><b>${esc(r.code)}</b></a></td>
+        <td><b>${esc(r.code)}</b></td>
         <td class="num">${r.bags}</td>
         <td class="num money">${inr(r.charges)}</td>
         <td class="num money" style="color:var(--leaf-dark)">${inr(r.received)}</td>
         <td class="num money" style="color:var(--danger)">${r.deducted ? '− ' + inr(r.deducted) : '—'}</td>
         <td class="num money" style="color:var(--danger)"><b>${inr(r.balance)}</b></td>
         <td>${agingBadge}</td>
+        <td style="color:var(--muted)">›</td>
       </tr>`}).join('')}</tbody>
-      <tfoot><tr><td></td><td>TOTAL</td><td class="num">${tb.bags}</td><td class="num money">${inr(tb.charges)}</td><td class="num money">${inr(tb.received)}</td><td class="num money">${inr(tbDeducted)}</td><td class="num money">${inr(tb.balance)}</td><td></td></tr></tfoot>
+      <tfoot><tr><td></td><td>TOTAL</td><td class="num">${tb.bags}</td><td class="num money">${inr(tb.charges)}</td><td class="num money">${inr(tb.received)}</td><td class="num money">${inr(tbDeducted)}</td><td class="num money">${inr(tb.balance)}</td><td></td><td></td></tr></tfoot>
     </table></div>`;
 }
 $('ledgerTable').addEventListener('click', e => {
     const b = e.target.closest('button[data-remind]');
     if (b) remindReceiver(b.dataset.remind);
 });
+
+/* ================= Party Profile Modal (Ledger row → Contact Card + Quick Actions) =================
+   Tapping a receiver in "Receiver Ledger — Outstanding" opens this bottom-sheet:
+   contact info + balance stats + 4 quick-action buttons (Payment / Deduction /
+   Statement / Invoice) that auto-fill the receiver code, plus a recent-activity
+   timeline. Statement export reuses the existing exportStatementPDF()/Excel()
+   functions by syncing their (still-present) Parties-tab inputs behind the scenes. */
+let partyModalCode = null;
+let partyModalView = 'profile';
+
+function openPartyModal() {
+    if (!$('partyModal')) return;
+    $('partyModal').classList.add('open');
+    $('partyModalBackdrop').classList.add('show');
+}
+function closePartyModal() {
+    if (!$('partyModal')) return;
+    $('partyModal').classList.remove('open');
+    $('partyModalBackdrop').classList.remove('show');
+    partyModalCode = null;
+}
+if ($('partyModalClose')) $('partyModalClose').addEventListener('click', closePartyModal);
+if ($('partyModalBackdrop')) $('partyModalBackdrop').addEventListener('click', closePartyModal);
+
+function showStatement(code) {
+    partyModalCode = (code || '').toUpperCase();
+    partyModalView = 'profile';
+    renderPartyModal();
+    openPartyModal();
+}
+function partyModalGoto(view) {
+    partyModalView = view;
+    renderPartyModal();
+}
+
+function partyModalActivity(code, limit = 8) {
+    const items = [];
+    store.payments.forEach(p => { if (p.code === code) items.push({ date: p.date, label: '💰 Payment', amount: p.amount, note: p.note }); });
+    (store.adjustments || []).forEach(a => {
+        const TYPE_LABEL = { damage: 'Damage', shortage: 'Shortage', discount: 'Discount', other: 'Deduction' };
+        if (a.code === code) items.push({ date: a.date, label: '🔻 ' + (TYPE_LABEL[a.type] || 'Deduction'), amount: a.amount, note: a.note });
+    });
+    (store.invoices || []).forEach(i => { if (i.code === code) items.push({ date: i.date, label: '🧾 ' + i.id, amount: invoiceTotal(i), note: i.note }); });
+    return items.sort((a, b) => b.date.localeCompare(a.date)).slice(0, limit);
+}
+
+function renderPartyProfileView(code) {
+    const m = store.masters.receivers[code] || {};
+    const row = ledgerRows().find(r => r.code === code) || { code, bags: 0, charges: 0, received: 0, deducted: 0, balance: 0, agingDays: 0 };
+    const wa = waLink(m.phone);
+    let agingBadge = '';
+    if (row.balance > 0) {
+        const cls = row.agingDays > 30 ? 'aging-danger' : row.agingDays > 15 ? 'aging-warn' : 'aging-good';
+        agingBadge = `<span class="badge-aging ${cls}">${row.agingDays}d pending</span>`;
+    }
+    const activity = partyModalActivity(code);
+    return `
+    <div class="pm-contact">
+      <div class="pm-who">${esc(code)}</div>
+      <div class="pm-sub">${m.address ? esc(m.address) : '<i>no address</i>'}${m.phone ? ' · ' + esc(m.phone) : ''}</div>
+      ${wa ? `<a class="btn btn-ghost btn-sm" style="margin-top:8px;text-decoration:none;display:inline-flex" href="${wa}" target="_blank">💬 WhatsApp</a>` : ''}
+    </div>
+    <div class="stats" style="grid-template-columns:repeat(2,1fr);margin:14px 0">
+      <div class="stat"><div class="v" style="color:${row.balance > 0 ? 'var(--danger)' : 'var(--leaf-dark)'}">${inr(row.balance)}</div><div class="l">Outstanding Balance</div></div>
+      <div class="stat"><div class="v">${row.bags}</div><div class="l">Total Items</div></div>
+    </div>
+    ${agingBadge ? `<div style="margin-bottom:10px">${agingBadge}</div>` : ''}
+    <div class="tbl-wrap" style="margin-bottom:14px"><table>
+      <tbody>
+        <tr><td>Total Charges</td><td class="num money">${inr(row.charges)}</td></tr>
+        <tr><td>Received</td><td class="num money" style="color:var(--leaf-dark)">${inr(row.received)}</td></tr>
+        <tr><td>Deducted</td><td class="num money" style="color:var(--danger)">${row.deducted ? '− ' + inr(row.deducted) : '—'}</td></tr>
+      </tbody>
+    </table></div>
+    <div class="pm-actions">
+      <button class="btn btn-green btn-sm" onclick="partyModalGoto('payment')">💰 Payment</button>
+      <button class="btn btn-danger btn-sm" onclick="partyModalGoto('deduction')">🔻 Deduction</button>
+      <button class="btn btn-ghost btn-sm" onclick="partyModalGoto('statement')">🧾 Statement</button>
+      <button class="btn btn-yellow btn-sm" onclick="partyModalGoto('invoice')">📝 Invoice</button>
+    </div>
+    <h3 style="font-size:.85rem;color:var(--muted);margin:16px 0 8px">Recent Activity</h3>
+    ${activity.length ? `<div>${activity.map(x => `
+      <div class="chl-row">
+        <div class="who">${x.label}<small>${fmtDate(x.date)}${x.note ? ' · ' + esc(x.note) : ''}</small></div>
+        <div class="money">${inr(x.amount)}</div>
+      </div>`).join('')}</div>` : '<div class="empty" style="padding:14px 0">No activity yet.</div>'}
+  `;
+}
+
+function renderPartyPaymentView(code) {
+    return `
+    <button class="btn btn-ghost btn-sm" onclick="partyModalGoto('profile')" style="margin-bottom:12px">‹ Back</button>
+    <h3 style="margin-bottom:10px;color:var(--leaf-dark)">💰 Record Payment — ${esc(code)}</h3>
+    <label class="fld" style="margin-top:0">Date</label>
+    <input type="date" id="pmPayDate" class="plain" value="${todayISO()}">
+    <label class="fld">Amount received (₹)</label>
+    <input type="number" id="pmPayAmt" min="0" inputmode="numeric" placeholder="e.g. 5000">
+    <label class="fld">Note (optional)</label>
+    <input type="text" id="pmPayNote" placeholder="cash / GPay / partial…">
+    <button class="btn btn-green btn-block" onclick="partyModalSavePayment('${esc(code)}')">💾 Save Payment</button>
+  `;
+}
+function partyModalSavePayment(code) {
+    const amount = +$('pmPayAmt').value;
+    const date = $('pmPayDate').value || todayISO();
+    if (!(amount > 0)) { toast('தொகையை போடவும்'); return; }
+    store.payments.push({ date, code, amount, note: $('pmPayNote').value.trim() });
+    save(); autoBackup(); renderAll();
+    toast(inr(amount) + ' saved for ' + code + ' ✔');
+    partyModalGoto('profile');
+}
+
+function renderPartyDeductionView(code) {
+    return `
+    <button class="btn btn-ghost btn-sm" onclick="partyModalGoto('profile')" style="margin-bottom:12px">‹ Back</button>
+    <h3 style="margin-bottom:10px;color:var(--danger)">🔻 Record Deduction — ${esc(code)}</h3>
+    <label class="fld" style="margin-top:0">Date</label>
+    <input type="date" id="pmAdjDate" class="plain" value="${todayISO()}">
+    <label class="fld">Deduction Amount (₹)</label>
+    <input type="number" id="pmAdjAmt" min="0" inputmode="numeric" placeholder="e.g. 250">
+    <label class="fld">Type</label>
+    <select id="pmAdjType">
+      <option value="damage">Damage 📦💥</option>
+      <option value="shortage">Shortage (குறைவு) ⚖️</option>
+      <option value="discount">Discount 🏷️</option>
+      <option value="other">Other 📝</option>
+    </select>
+    <label class="fld">Note</label>
+    <input type="text" id="pmAdjNote" placeholder="e.g. 2 bags transit-ல் கெட்டுப்போனது">
+    <button class="btn btn-danger btn-block" onclick="partyModalSaveAdjustment('${esc(code)}')">💾 Save Deduction</button>
+  `;
+}
+function partyModalSaveAdjustment(code) {
+    const amount = +$('pmAdjAmt').value;
+    const date = $('pmAdjDate').value || todayISO();
+    const type = $('pmAdjType').value;
+    if (!(amount > 0)) { toast('Deduction amount போடவும்'); return; }
+    store.adjustments.push({ date, code, amount, type, note: $('pmAdjNote').value.trim() });
+    save(); autoBackup(); renderAll();
+    toast('₹' + amount.toLocaleString('en-IN') + ' deducted for ' + code + ' ✔');
+    partyModalGoto('profile');
+}
+
+function renderPartyStatementView(code) {
+    const to = todayISO();
+    const fromD = new Date(); fromD.setDate(fromD.getDate() - 30);
+    const from = fromD.getFullYear() + '-' + String(fromD.getMonth() + 1).padStart(2, '0') + '-' + String(fromD.getDate()).padStart(2, '0');
+    return `
+    <button class="btn btn-ghost btn-sm" onclick="partyModalGoto('profile')" style="margin-bottom:12px">‹ Back</button>
+    <h3 style="margin-bottom:10px;color:var(--leaf-dark)">🧾 Ledger Statement — ${esc(code)}</h3>
+    <div style="display:flex;gap:10px;margin-bottom:12px">
+      <div style="flex:1"><label class="fld" style="margin-top:0">From</label><input type="date" id="pmStmtFrom" class="plain" value="${from}"></div>
+      <div style="flex:1"><label class="fld" style="margin-top:0">To</label><input type="date" id="pmStmtTo" class="plain" value="${to}"></div>
+    </div>
+    <div style="display:flex;gap:10px">
+      <button class="btn btn-green btn-sm" style="flex:1" onclick="partyModalExportStatement('${esc(code)}','pdf')">📄 PDF</button>
+      <button class="btn btn-ghost btn-sm" style="flex:1" onclick="partyModalExportStatement('${esc(code)}','excel')">📊 Excel</button>
+    </div>
+  `;
+}
+function partyModalExportStatement(code, kind) {
+    const from = $('pmStmtFrom').value, to = $('pmStmtTo').value;
+    if (!from || !to) { toast('From/To date தேர்ந்தெடுக்கவும்'); return; }
+    if (from > to) { toast('From Date must be before To Date'); return; }
+    // Reuse the existing Parties-tab statement exporters — just sync the (still
+    // present, now collapsible) hidden-ish inputs they read from, no duplicate logic.
+    if ($('stmtReceiver')) $('stmtReceiver').value = code;
+    if ($('stmtFromDate')) $('stmtFromDate').value = from;
+    if ($('stmtToDate')) $('stmtToDate').value = to;
+    if (kind === 'pdf') exportStatementPDF(); else exportStatementExcel();
+}
+
+function renderPartyInvoiceView(code) {
+    const existing = invoicesForCode(code);
+    return `
+    <button class="btn btn-ghost btn-sm" onclick="partyModalGoto('profile')" style="margin-bottom:12px">‹ Back</button>
+    <h3 style="margin-bottom:10px;color:var(--leaf-dark)">📝 Invoice — ${esc(code)}</h3>
+    <label class="fld" style="margin-top:0">Date</label>
+    <input type="date" id="pmInvDate" class="plain" value="${curDate()}">
+    <button class="btn btn-green btn-block" onclick="partyModalCreateInvoice('${esc(code)}')">🧾 Invoice உருவாக்கு</button>
+    ${existing.length ? `<h3 style="font-size:.82rem;color:var(--muted);margin:16px 0 8px">Past Invoices</h3>
+      <div>${existing.slice(0, 6).map(inv => `
+        <div class="chl-row">
+          <div class="who">${esc(inv.id)}<small>${fmtDate(inv.date)} · ${inr(invoiceTotal(inv))}</small></div>
+          <button class="btn btn-ghost btn-sm" onclick="exportInvoicePDF('${esc(inv.id)}')">PDF</button>
+        </div>`).join('')}</div>` : ''}
+  `;
+}
+function partyModalCreateInvoice(code) {
+    const date = $('pmInvDate').value || curDate();
+    const inv = createInvoice(date, code);
+    save(); autoBackup(); renderAll();
+    toast(inv.id + ' create ஆனது ✔ (' + inr(invoiceTotal(inv)) + ')');
+    partyModalGoto('invoice');
+}
+
+function renderPartyModal() {
+    if (!partyModalCode || !$('partyModalBody')) return;
+    const code = partyModalCode;
+    let html;
+    if (partyModalView === 'payment') html = renderPartyPaymentView(code);
+    else if (partyModalView === 'deduction') html = renderPartyDeductionView(code);
+    else if (partyModalView === 'statement') html = renderPartyStatementView(code);
+    else if (partyModalView === 'invoice') html = renderPartyInvoiceView(code);
+    else html = renderPartyProfileView(code);
+    $('partyModalBody').innerHTML = html;
+}
 function editPay(i) {
     const p = store.payments[i];
     $('payCode').value = p.code;
@@ -1592,7 +1825,7 @@ function quickCreateInvoice(code) {
     toast(inv.id + ' create ஆனது ✔ (' + inr(invoiceTotal(inv)) + ')');
 }
 function jumpToInvoice(id) {
-    document.querySelector('nav.tabs button[data-tab=parties]').click();
+    switchTab('parties');
     window.scrollTo({ top: 0 });
     setTimeout(() => {
         const el = document.getElementById('inv-row-' + id);

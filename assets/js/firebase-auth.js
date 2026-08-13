@@ -57,8 +57,11 @@ function applyRoleUI(user) {
   document.body.classList.remove('role-owner', 'role-admin', 'role-driver', 'role-seller');
   document.body.classList.add('role-' + user.role);
 
+  // [data-tab] buttons now live in TWO places — the trimmed bottom nav
+  // (Entry/Trip/Receivers) and the full hamburger drawer menu — so both
+  // must be filtered together for role-based access to stay consistent.
   const allowed = ROLE_TABS[user.role];
-  const navButtons = document.querySelectorAll('nav.tabs button');
+  const navButtons = document.querySelectorAll('[data-tab]');
   let firstAllowedBtn = null;
   navButtons.forEach(btn => {
     const tab = btn.dataset.tab;
@@ -67,9 +70,11 @@ function applyRoleUI(user) {
     if (ok && !firstAllowedBtn) firstAllowedBtn = btn;
   });
 
+  // "More" button (opens the drawer) has no data-tab — always leave it visible.
+
   // If the tab currently open isn't permitted for this role, jump to the
   // first tab that is (e.g. a Driver reloading on the Parties tab).
-  const activeBtn = document.querySelector('nav.tabs button.active');
+  const activeBtn = document.querySelector('[data-tab].active');
   if (allowed && (!activeBtn || activeBtn.style.display === 'none') && firstAllowedBtn) {
     firstAllowedBtn.click();
   }
