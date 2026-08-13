@@ -151,6 +151,12 @@
         <div id="recvTypeBreakdown" style="margin-bottom:10px"></div>
         <div id="recvTable"></div>
       </div>
+      <div class="card amt-only">
+        <h2>🧾 Invoices — Create for Today</h2>
+        <p class="hint" style="margin-bottom:10px">ஒவ்வொரு receiver-க்கும் இன்றைய delivery lines-ஐ வைச்சு ஒரு formal, numbered
+          Invoice உருவாக்கலாம். Invoices Parties tab-ல் edit/delete பண்ணலாம்.</p>
+        <div id="invoiceQuickList"></div>
+      </div>
       <div class="card">
         <h2>🧾 Delivery Challans (goods only — no money)</h2>
         <p class="hint">One challan per receiver: total items delivered + which sellers they came from. Rates and
@@ -260,7 +266,7 @@
       </div>
       <div class="card">
         <h2>🔻 Record Deduction (Damage / Shortage / Discount)</h2>
-        <p class="hint" style="margin-bottom:10px">GST bill இல்லாததால் Credit Note தேவையில்லை — இது நேரடியா receiver-ன் balance-ல் இருந்து கழிக்கப்படும்.</p>
+        <p class="hint" style="margin-bottom:10px">GST bill இல்லாததால் இது நேரடியா receiver-ன் balance-ல் இருந்து கழிக்கப்படும். "Credit Note" வேணும்னா, கீழே Deduction History-ல் அந்த entry-க்கு பக்கத்தில் 🧾 பட்டன் அழுத்தி formal document-ஆ print பண்ணலாம்.</p>
         <label class="fld">Receiver</label>
         <select id="adjCode"></select>
         <label class="fld">Date</label>
@@ -283,6 +289,28 @@
       <div class="card">
         <h2>📜 Deduction History</h2>
         <div id="adjList"></div>
+      </div>
+      <div class="card">
+        <h2>🧾 Invoices — Manual Create</h2>
+        <p class="hint" style="margin-bottom:10px">Receivers tab-ல் "இன்றைக்கு" ஒரு க்ளிக்-ல் create பண்ணலாம். இங்கே எந்த
+          தேதிக்கும் manual-ஆ create பண்ணலாம் (உதா: பழைய தேதி மறந்துப்போன invoice).</p>
+        <div style="display:flex;gap:10px">
+          <div style="flex:1">
+            <label class="fld" style="margin-top:0">Receiver</label>
+            <select id="invNewCode"></select>
+          </div>
+          <div style="flex:1">
+            <label class="fld" style="margin-top:0">Date</label>
+            <input type="date" id="invNewDate" class="plain">
+          </div>
+        </div>
+        <button class="btn btn-green btn-block" id="invCreateBtn">🧾 Invoice உருவாக்கு</button>
+      </div>
+      <div class="card">
+        <h2>📜 Invoice History</h2>
+        <p class="hint" style="margin-bottom:10px">Invoice-ஐ Edit பண்ணா line items மட்டும் மாறும் — receiver-ன் balance
+          (Ledger) இதனால் மாறாது, அது trip entry-ஐ வைச்சே கணக்கிடப்படும்.</p>
+        <div id="invoiceList"></div>
       </div>
       <div class="card">
         <h2>🚚 Seller Masters</h2>
