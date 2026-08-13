@@ -1,7 +1,7 @@
 'use strict';
 /* ================= State ================= */
 const LS_KEY = 'lemonTripSheet_v1';
-let store = { rate: 250, autoBackup: true, days: {}, masters: { sellers: {}, receivers: {} }, payments: [], itemTypes: [], signature: null, driverInfo: {}, tripSalaries: {}, expenses: [], indents: [], adjustments: [], trips: [] };
+let store = { rate: 250, autoBackup: true, days: {}, masters: { sellers: {}, receivers: {} }, payments: [], itemTypes: [], signature: null, driverInfo: {}, tripSalaries: {}, expenses: [], indents: [], adjustments: [], trips: [], invoices: [] };
 let editIndex = -1;
 let editPaymentIndex = -1;
 let editAdjustmentIndex = -1;
@@ -33,6 +33,8 @@ function load() {
   if (!Array.isArray(store.expenses)) store.expenses = [];
   if (!Array.isArray(store.indents)) store.indents = [];
   if (!Array.isArray(store.adjustments)) store.adjustments = [];
+  if (!Array.isArray(store.trips)) store.trips = [];
+  if (!Array.isArray(store.invoices)) store.invoices = [];
 
   if (store.signature) {
     window.signDataUrl = store.signature;
@@ -357,6 +359,74 @@ function dailyTrendAgg(daysToLookBack = 15) {
   return trends;
 }
 
+/* ================= Invoices (formal, printable — no GST) =================
+   An Invoice is a numbered, editable SNAPSHOT of a receiver's delivery lines
+   for a date. It does NOT change ledger math — ledgerRows()/receiverStatementRows()
+   keep computing directly from store.days as before, so there's one source of
+   truth for money owed. The Invoice is purely the printable/record layer on
+   top of that — you can tweak its lines for presentation without touching the
+   underlying trip entry. Deleting an Invoice never affects the ledger. */
+function newInvoiceId() {
+  const nums = (store.invoices || []).map(i => parseInt((i.id || '').replace('INV-', ''), 10)).filter(n => !isNaN(n));
+  const next = (nums.length ? Math.max(...nums) : 0) + 1;
+  return 'INV-' + String(next).padStart(6, '0');
+}
+// Pull today's (or any date's) actual delivery lines for one receiver, at the
+// rate that was actually applied that day — this is what pre-fills a new invoice.
+function invoiceLinesFromDay(date, code) {
+  const entries = store.days[date] || [];
+  const lines = [];
+  entries.forEach(e => (e.receivers || []).forEach(r => {
+    if ((r.code || '').toUpperCase() !== code.toUpperCase()) return;
+    const qty = +r.qty || 0;
+    if (!qty) return;
+    const rate = r.rate !== undefined ? r.rate : store.rate;
+    lines.push({ seller: e.name, type: r.type || 'Bag', qty, rate, amount: qty * rate });
+  }));
+  return lines;
+}
+function invoiceTotal(inv) {
+  return (inv.lines || []).reduce((s, l) => s + (+l.amount || 0), 0);
+}
+function findInvoice(id) { return (store.invoices || []).find(x => x.id === id); }
+function createInvoice(date, code) {
+  const inv = {
+    id: newInvoiceId(),
+    date,
+    code: code.toUpperCase(),
+    lines: invoiceLinesFromDay(date, code),
+    note: '',
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString()
+  };
+  if (!store.invoices) store.invoices = [];
+  store.invoices.push(inv);
+  return inv;
+}
+function invoicesForCode(code) {
+  return (store.invoices || []).filter(x => x.code === code.toUpperCase()).sort((a, b) => b.date.localeCompare(a.date) || b.id.localeCompare(a.id));
+}
+function allInvoicesSorted() {
+  return (store.invoices || []).slice().sort((a, b) => b.date.localeCompare(a.date) || b.id.localeCompare(a.id));
+}
+function deleteInvoiceRecord(id) {
+  const i = (store.invoices || []).findIndex(x => x.id === id);
+  if (i >= 0) store.invoices.splice(i, 1);
+}
+
+/* ================= Credit Notes (formal doc on top of a Deduction) =================
+   Reuses the existing "adjustments" (Damage/Shortage/Discount) ledger entries as
+   the single source of truth for the balance math — a Credit Note just assigns
+   that deduction a formal sequential number the first time it's printed, so the
+   receiver gets a proper document instead of a bare ledger line. */
+function ensureCreditNoteNo(adj) {
+  if (adj.cnNo) return adj.cnNo;
+  const nums = (store.adjustments || []).map(a => parseInt((a.cnNo || '').replace('CN-', ''), 10)).filter(n => !isNaN(n));
+  const next = (nums.length ? Math.max(...nums) : 0) + 1;
+  adj.cnNo = 'CN-' + String(next).padStart(6, '0');
+  return adj.cnNo;
+}
+
 /* ================= Pickup Indents (Transport Orders) ================= */
 // A "Pickup Indent" is created the moment a seller calls in with a rough order
 // (seller + which receivers), before anyone knows exact bag/crate counts.
@@ -397,7 +467,77 @@ function deleteIndent(id) {
 function allVehicles() {
   const set = new Set();
   Object.values(store.days).forEach(list => list.forEach(e => { if (e.vehicle) set.add(e.vehicle); }));
+  (store.trips || []).forEach(t => { if (t.vehicle) set.add(t.vehicle); });
   return [...set].sort();
+}
+
+/* ================= Trips (formal vehicle-trip object) ================= */
+// A Trip formalizes "this vehicle, this date" — Trip ID, driver/cleaner name,
+// start/end KM, and a status flow (Loading → In-Transit → Delivered → Closed).
+// Closing a trip snapshots collection/costs/profit at that moment and locks
+// them, so later edits to entries/expenses for that date+vehicle don't quietly
+// change a trip that's already been settled and reported on.
+const TRIP_STATUS_ORDER = ['loading', 'in_transit', 'delivered', 'closed'];
+function newTripId(dateStr) {
+  const [y, m, d] = dateStr.split('-');
+  const stamp = d + MONTHS[+m - 1] + y.slice(2);
+  const seq = (store.trips || []).filter(t => t.id && t.id.startsWith('TRP-' + stamp)).length + 1;
+  return 'TRP-' + stamp + '-' + String(seq).padStart(2, '0');
+}
+function tripStatusLabel(s) {
+  return { loading: '🟡 Loading', in_transit: '🔵 In-Transit', delivered: '🟢 Delivered', closed: '⚪ Closed' }[s] || s;
+}
+function tripStatusNext(s) {
+  const i = TRIP_STATUS_ORDER.indexOf(s);
+  return (i >= 0 && i < TRIP_STATUS_ORDER.length - 1) ? TRIP_STATUS_ORDER[i + 1] : null;
+}
+function findTrip(date, vehicle) {
+  return (store.trips || []).find(t => t.date === date && t.vehicle === vehicle);
+}
+function getOrCreateTrip(date, vehicle) {
+  let t = findTrip(date, vehicle);
+  if (!t) {
+    t = { id: newTripId(date), date, vehicle, driver: '', cleaner: '', startKm: '', endKm: '', status: 'loading', createdAt: new Date().toISOString(), closedAt: null, locked: null };
+    if (!store.trips) store.trips = [];
+    store.trips.push(t);
+  }
+  return t;
+}
+// Live figures for a date+vehicle — same math profitLossReport() uses, just
+// scoped to a single day+vehicle instead of a date range.
+function tripSnapshot(date, vehicle) {
+  const entries = entriesInRange(date, date, vehicle);
+  const agg = receiverAgg(entries);
+  const collection = agg.reduce((s, r) => s + (r.amount || 0), 0);
+  const bags = entries.reduce((s, e) => s + entryTotal(e), 0);
+  const loadMan = loadManWage(entries);
+  const ts = getTripSalary(date, vehicle);
+  const exps = expensesInRange(date, date, vehicle);
+  const fuel = exps.filter(x => x.type === 'diesel' || x.type === 'petrol').reduce((s, x) => s + (+x.amount || 0), 0);
+  const otherExp = exps.filter(x => x.type !== 'diesel' && x.type !== 'petrol').reduce((s, x) => s + (+x.amount || 0), 0);
+  const driverSalary = ts.driver || 0, cleanerSalary = ts.cleaner || 0;
+  const totalCost = loadMan + driverSalary + cleanerSalary + fuel + otherExp;
+  return { collection, bags, loadMan, driverSalary, cleanerSalary, fuel, otherExp, totalCost, profit: collection - totalCost };
+}
+function closeTrip(id) {
+  const t = (store.trips || []).find(x => x.id === id); if (!t) return;
+  t.locked = tripSnapshot(t.date, t.vehicle);
+  t.status = 'closed';
+  t.closedAt = new Date().toISOString();
+}
+function reopenTrip(id) {
+  const t = (store.trips || []).find(x => x.id === id); if (!t) return;
+  t.locked = null;
+  t.status = 'delivered';
+  t.closedAt = null;
+}
+function allTrips() {
+  return (store.trips || []).slice().sort((a, b) => (b.date + b.createdAt).localeCompare(a.date + a.createdAt));
+}
+function deleteTrip(id) {
+  const i = (store.trips || []).findIndex(x => x.id === id);
+  if (i < 0) return;
+  store.trips.splice(i, 1);
 }
 
 /* ================= Audit (multi-vehicle, multi-day consolidated) ================= */

@@ -235,6 +235,51 @@ async function exportChallanPDF(code) {
     finally { hideSpinner(); }
 }
 
+/* ---------- Generic single-report-page PDF helper (Invoice / Credit Note) ---------- */
+async function singlePagePdf(filename) {
+    const canvas = await html2canvas($('report').firstElementChild, { scale: 2, backgroundColor: '#ffffff' });
+    freeReport();
+    const pdf = new window.jspdf.jsPDF({ unit: 'mm', format: 'a4', orientation: 'portrait' });
+    const pageW = 210, pageH = 297, margin = 8;
+    const imgW = pageW - margin * 2;
+    let imgH = canvas.height * imgW / canvas.width;
+    if (imgH > pageH - margin * 2) {
+        imgH = pageH - margin * 2;
+        const adjustedW = canvas.width * imgH / canvas.height;
+        const offsetX = margin + (imgW - adjustedW) / 2;
+        pdf.addImage(canvas.toDataURL('image/jpeg', 0.96), 'JPEG', offsetX, margin, adjustedW, imgH);
+    } else {
+        pdf.addImage(canvas.toDataURL('image/jpeg', 0.96), 'JPEG', margin, margin, imgW, imgH);
+    }
+    await sharePdfBlob(pdf.output('blob'), filename);
+}
+
+async function exportInvoicePDF(id) {
+    const inv = findInvoice(id);
+    if (!inv) { toast('Invoice கிடைக்கல'); return; }
+    if (typeof html2canvas === 'undefined' || typeof window.jspdf === 'undefined') return libMissing('PDF export');
+    toast('Preparing invoice…');
+    showSpinner('Generating Invoice...');
+    try {
+        buildInvoiceReport(inv);
+        await singlePagePdf(inv.id + '_' + inv.code + '.pdf');
+    } catch (e) { console.error(e); toast('Invoice export failed'); }
+    finally { hideSpinner(); }
+}
+
+async function exportCreditNotePDF(i) {
+    const adj = store.adjustments[i];
+    if (!adj || !adj.cnNo) { toast('Credit Note number இல்லை'); return; }
+    if (typeof html2canvas === 'undefined' || typeof window.jspdf === 'undefined') return libMissing('PDF export');
+    toast('Preparing credit note…');
+    showSpinner('Generating Credit Note...');
+    try {
+        buildCreditNoteReport(adj);
+        await singlePagePdf(adj.cnNo + '_' + adj.code + '.pdf');
+    } catch (e) { console.error(e); toast('Credit Note export failed'); }
+    finally { hideSpinner(); }
+}
+
 async function exportChallanImage(code) {
     if (!hasData()) return;
     if (typeof html2canvas === 'undefined') return libMissing('Image export');

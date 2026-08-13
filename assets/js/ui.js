@@ -488,6 +488,9 @@ function renderDashboards() {
     if ($('tripTypeBreakdown')) $('tripTypeBreakdown').innerHTML = bagsByTypeHTML(list);
     if ($('recvTypeBreakdown')) $('recvTypeBreakdown').innerHTML = bagsByTypeHTML(list);
     renderChallanList(agg);
+    renderInvoiceQuickList();
+    renderTripControl();
+    renderTripHistory();
 }
 function renderChallanList(agg) {
     const box = $('challanList');
@@ -504,6 +507,116 @@ $('challanList').addEventListener('click', e => {
     if (b.dataset.chPdf !== undefined) exportChallanPDF(b.dataset.chPdf);
     else if (b.dataset.chImg !== undefined) exportChallanImage(b.dataset.chImg);
 });
+
+/* ================= Trip Control (formal Trip object per date+vehicle) ================= */
+function renderTripControl() {
+    const box = $('tripControlCard');
+    if (!box) return;
+    const d = curDate();
+    const v = (vehicleFilter && vehicleFilter !== '__UNASSIGNED__') ? vehicleFilter : '';
+    if (!v) {
+        box.innerHTML = `<h2>🚚 Trip Details</h2><p class="hint">மேலே ஒரு குறிப்பிட்ட வண்டியை தேர்ந்தெடுக்கவும் (Entry tab-ல புது வண்டி எண் type பண்ணி ஒரு load சேர்த்தால் அது இங்கே தேர்வுக்கு வரும்) — Trip ID, Driver, KM, Status போன்றவை இங்கே track செய்யலாம்.</p>`;
+        return;
+    }
+    const t = findTrip(d, v);
+    if (!t) {
+        box.innerHTML = `<h2>🚚 Trip Details — 🚚 ${esc(v)}</h2>
+      <p class="hint" style="margin-bottom:10px">இந்த வண்டிக்கு ${fmtDate(d)}-அன்று இன்னும் trip start ஆகவில்லை.</p>
+      <button class="btn btn-green btn-block" onclick="startTripUI('${esc(v)}')">🚚 Start New Trip</button>`;
+        return;
+    }
+    const nextStatus = tripStatusNext(t.status);
+    const snap = t.locked || tripSnapshot(t.date, t.vehicle);
+    const closed = t.status === 'closed';
+    box.innerHTML = `
+    <h2>🚚 Trip Details <span class="badge-aging ${closed ? 'aging-good' : 'aging-warn'}">${tripStatusLabel(t.status)}</span></h2>
+    <div class="chips" style="margin-bottom:10px"><span class="chip">🆔 ${esc(t.id)}</span><span class="chip">🚚 ${esc(t.vehicle)}</span></div>
+    <div style="display:flex;gap:10px">
+      <div style="flex:1"><label class="fld" style="margin-top:0">Driver Name</label><input type="text" id="tripDriver" value="${esc(t.driver)}" ${closed ? 'disabled' : ''}></div>
+      <div style="flex:1"><label class="fld" style="margin-top:0">Cleaner Name</label><input type="text" id="tripCleaner" value="${esc(t.cleaner)}" ${closed ? 'disabled' : ''}></div>
+    </div>
+    <div style="display:flex;gap:10px">
+      <div style="flex:1"><label class="fld" style="margin-top:0">Start KM</label><input type="number" id="tripStartKm" value="${esc(t.startKm)}" ${closed ? 'disabled' : ''}></div>
+      <div style="flex:1"><label class="fld" style="margin-top:0">End KM</label><input type="number" id="tripEndKm" value="${esc(t.endKm)}" ${closed ? 'disabled' : ''}></div>
+    </div>
+    ${!closed ? `<button class="btn btn-ghost btn-block" onclick="saveTripDetails('${esc(t.id)}')">💾 Save Trip Details</button>` : ''}
+    ${nextStatus ? `<button class="btn btn-yellow btn-block" onclick="advanceTripStatus('${esc(t.id)}')">▶ Mark as ${tripStatusLabel(nextStatus)}</button>` : ''}
+    ${t.status === 'delivered' ? `<button class="btn btn-green btn-block" onclick="closeTripUI('${esc(t.id)}')">🔒 Close Trip (Lock Costs)</button>` : ''}
+    <div class="stats" style="grid-template-columns:repeat(2,1fr);margin-top:12px">
+      <div class="stat"><div class="v">${inr(snap.collection)}</div><div class="l">Collection</div></div>
+      <div class="stat"><div class="v">${inr(snap.totalCost)}</div><div class="l">Total Cost</div></div>
+    </div>
+    ${closed ? `
+      <p class="hint" style="margin-top:8px">🔒 Locked on ${fmtDate((t.closedAt || '').slice(0, 10))}. Load Man ${inr(snap.loadMan)} · Driver ${inr(snap.driverSalary)} · Cleaner ${inr(snap.cleanerSalary)} · Fuel ${inr(snap.fuel)} · Other ${inr(snap.otherExp)} · Net ${snap.profit >= 0 ? 'Profit' : 'Loss'} ${inr(Math.abs(snap.profit))}</p>
+      <button class="btn btn-ghost btn-sm btn-block" onclick="reopenTripUI('${esc(t.id)}')">🔓 Reopen Trip (edit corrections)</button>
+    ` : `<p class="hint" style="margin-top:8px">Driver/Cleaner சம்பள தொகையை "💰 Expenses" tab-ல போடவும் — Trip Close ஆகும்போது அது இங்கே snapshot ஆகி lock ஆகிடும்.</p>`}
+    <button class="icon-btn red" style="margin-top:10px" onclick="deleteTripUI('${esc(t.id)}')" title="Delete Trip Record">🗑️ Delete Trip Record</button>
+  `;
+}
+function startTripUI(v) {
+    const d = curDate();
+    const t = getOrCreateTrip(d, v);
+    save(); autoBackup(); renderTripControl(); renderTripHistory();
+    toast('Trip started — ' + t.id + ' ✔');
+}
+function saveTripDetails(id) {
+    const t = (store.trips || []).find(x => x.id === id); if (!t) return;
+    t.driver = $('tripDriver').value.trim();
+    t.cleaner = $('tripCleaner').value.trim();
+    t.startKm = $('tripStartKm').value ? +$('tripStartKm').value : '';
+    t.endKm = $('tripEndKm').value ? +$('tripEndKm').value : '';
+    save(); autoBackup(); renderTripControl(); renderTripHistory();
+    toast('Trip details saved ✔');
+}
+function advanceTripStatus(id) {
+    const t = (store.trips || []).find(x => x.id === id); if (!t) return;
+    const nxt = tripStatusNext(t.status);
+    if (!nxt) return;
+    t.status = nxt;
+    save(); autoBackup(); renderTripControl(); renderTripHistory();
+    toast('Trip status → ' + tripStatusLabel(nxt));
+}
+function closeTripUI(id) {
+    if (!confirm('Trip-ஐ Close பண்ணி costs lock பண்ணலாமா? பின்னாடி entries/expenses மாத்தினாலும் இந்த trip-ன் locked figures மாறாது.')) return;
+    closeTrip(id);
+    save(); autoBackup(); renderTripControl(); renderTripHistory();
+    toast('Trip closed & costs locked 🔒');
+}
+function reopenTripUI(id) {
+    if (!confirm('Trip-ஐ மறுபடியும் திறக்கலாமா? Locked snapshot அழிக்கப்பட்டு, status "Delivered"-க்கு திரும்பும்.')) return;
+    reopenTrip(id);
+    save(); autoBackup(); renderTripControl(); renderTripHistory();
+    toast('Trip reopened');
+}
+function deleteTripUI(id) {
+    if (!confirm('இந்த Trip record-ஐ நீக்கலாமா? (Load entries நீக்கப்படாது — Trip meta-data மட்டும் நீக்கப்படும்)')) return;
+    deleteTrip(id);
+    save(); autoBackup(); renderTripControl(); renderTripHistory();
+    toast('Trip deleted');
+}
+function renderTripHistory() {
+    const box = $('tripHistoryList');
+    if (!box) return;
+    const trips = allTrips().slice(0, 15);
+    if (!trips.length) { box.innerHTML = '<div class="empty">Trips இன்னும் தொடங்கவில்லை.</div>'; return; }
+    box.innerHTML = trips.map(t => {
+        const badgeClass = (t.status === 'closed' || t.status === 'delivered') ? 'aging-good' : 'aging-warn';
+        return `<div class="entry-item" style="cursor:pointer" onclick="gotoTrip('${esc(t.date)}','${esc(t.vehicle)}')">
+      <div class="entry-mid">
+        <div class="entry-name">${esc(t.id)} <span class="badge-aging ${badgeClass}">${tripStatusLabel(t.status)}</span></div>
+        <div class="brk">📅 ${fmtDate(t.date)} · 🚚 ${esc(t.vehicle)}${t.driver ? ' · 👤 ' + esc(t.driver) : ''}</div>
+      </div>
+      <div class="entry-acts"><span style="align-self:center;color:var(--muted)">›</span></div>
+    </div>`;
+    }).join('');
+}
+function gotoTrip(date, vehicle) {
+    $('curDate').value = date;
+    setVehicleFilter(vehicle);
+    if (typeof refreshDaySubscriptions === 'function') refreshDaySubscriptions();
+    document.querySelector('nav.tabs button[data-tab=trip]').click();
+    window.scrollTo({ top: 0 });
+}
 function renderDays() {
     const days = Object.keys(store.days).sort().reverse();
     const box = $('daysList');
@@ -537,7 +650,7 @@ function renderAll() {
     _renderAllTimer = setTimeout(() => {
         renderEntries(); renderDashboards(); renderDatalists(); renderDays();
         renderLedger(); renderPayments(); renderMasters();
-        renderOrders(); renderAdjustments();
+        renderOrders(); renderAdjustments(); renderInvoiceHistory();
         if (typeof renderItemTypes === 'function') renderItemTypes();
         if (typeof renderAudit === 'function') renderAudit();
         if (typeof renderExpensesTab === 'function') renderExpensesTab();
@@ -1234,6 +1347,70 @@ function buildChallan(r, idx) {
     return $('report');
 }
 
+function buildInvoiceReport(inv) {
+    const m = store.masters.receivers[inv.code] || {};
+    const total = invoiceTotal(inv);
+    $('report').innerHTML = `
+    <div class="report-page ch-wrap">
+      <div class="ch-top">
+        <div><h1>🧾 Invoice</h1><div class="sub">Lemon Trip Sheet — Freight / Transport Charges</div></div>
+        <div class="ch-meta">Invoice No: <b>${esc(inv.id)}</b><br>Date: <b>${fmtDate(inv.date)}</b></div>
+      </div>
+      <div class="ch-to">
+        <div><div class="lbl">Bill To</div><div class="who">${esc(inv.code)}</div>
+          ${m.address ? `<div class="brk">${esc(m.address)}</div>` : ''}${m.phone ? `<div class="brk">📞 ${esc(m.phone)}</div>` : ''}</div>
+        <div class="bags"><div class="n">${inr(total)}</div><div class="t">Total Due</div></div>
+      </div>
+      <div class="tbl-wrap"><table>
+        <thead><tr><th>#</th><th>Seller / Shop</th><th>Item Type</th><th class="num">Qty</th><th class="num">Rate (₹)</th><th class="num">Amount (₹)</th></tr></thead>
+        <tbody>${(inv.lines || []).map((l, i) => `<tr>
+          <td>${i + 1}</td><td><b>${esc(l.seller)}</b></td><td>${esc(l.type || 'Bag')}</td>
+          <td class="num">${l.qty}</td><td class="num">${inr(l.rate)}</td><td class="num money">${inr(l.amount)}</td>
+        </tr>`).join('')}</tbody>
+        <tfoot><tr><td colspan="5">TOTAL</td><td class="num">${inr(total)}</td></tr></tfoot>
+      </table></div>
+      ${inv.note ? `<div class="ch-line" style="margin-top:14px">📝 ${esc(inv.note)}</div>` : ''}
+      <div class="ch-sign">
+        <div>For Lemon Trip Sheet
+          ${window.signDataUrl ? `<br><img src="${window.signDataUrl}" style="height:60px;margin-top:10px">` : ''}
+        </div>
+        <div>Received / Acknowledged</div>
+      </div>
+      <div class="ch-note">Freight / transport charges only — no GST or other tax applicable.</div>
+    </div>`;
+    return $('report');
+}
+
+function buildCreditNoteReport(adj) {
+    const m = store.masters.receivers[adj.code] || {};
+    const TYPE_LABEL = { damage: 'Damage', shortage: 'Shortage', discount: 'Discount', other: 'Deduction' };
+    $('report').innerHTML = `
+    <div class="report-page ch-wrap">
+      <div class="ch-top">
+        <div><h1>🧾 Credit Note</h1><div class="sub">Lemon Trip Sheet — Ledger Deduction Confirmation</div></div>
+        <div class="ch-meta">Credit Note No: <b>${esc(adj.cnNo)}</b><br>Date: <b>${fmtDate(adj.date)}</b></div>
+      </div>
+      <div class="ch-to">
+        <div><div class="lbl">Issued To</div><div class="who">${esc(adj.code)}</div>
+          ${m.address ? `<div class="brk">${esc(m.address)}</div>` : ''}</div>
+        <div class="bags"><div class="n">${inr(adj.amount)}</div><div class="t">Credited</div></div>
+      </div>
+      <div class="tbl-wrap"><table>
+        <thead><tr><th>Reason</th><th>Note</th><th class="num">Amount (₹)</th></tr></thead>
+        <tbody><tr><td><b>${esc(TYPE_LABEL[adj.type] || adj.type)}</b></td><td>${esc(adj.note || '—')}</td><td class="num money">${inr(adj.amount)}</td></tr></tbody>
+        <tfoot><tr><td colspan="2">TOTAL CREDITED</td><td class="num">${inr(adj.amount)}</td></tr></tfoot>
+      </table></div>
+      <div class="ch-sign">
+        <div>For Lemon Trip Sheet
+          ${window.signDataUrl ? `<br><img src="${window.signDataUrl}" style="height:60px;margin-top:10px">` : ''}
+        </div>
+        <div>Received / Acknowledged</div>
+      </div>
+      <div class="ch-note">This amount has been deducted from the receiver's outstanding balance. No GST or other tax applicable.</div>
+    </div>`;
+    return $('report');
+}
+
 /* ================= Parties UI, payments, masters ================= */
 function waLink(phone, text) {
     let d = String(phone || '').replace(/\D/g, '');
@@ -1386,6 +1563,160 @@ function deleteAdjustment(i) {
     if (editAdjustmentIndex === i) cancelAdjEdit();
     save(); autoBackup(); renderAll(); toast('Deduction deleted');
 }
+/* ================= Invoices (formal, printable) ================= */
+let editingInvoiceId = null;
+
+function renderInvoiceQuickList() {
+    const box = $('invoiceQuickList');
+    if (!box) return;
+    const list = activeEntries(), agg = receiverAgg(list);
+    if (!agg.length) { box.innerHTML = '<div class="empty">இன்று deliveries இல்லை.</div>'; return; }
+    const d = curDate();
+    box.innerHTML = agg.map(r => {
+        const existing = (store.invoices || []).find(x => x.date === d && x.code === r.code);
+        if (existing) {
+            return `<div class="chl-row">
+        <div class="who">${esc(r.code)}<small>🧾 ${esc(existing.id)} · ${inr(invoiceTotal(existing))} · ஏற்கனவே create ஆகிவிட்டது</small></div>
+        <button class="btn btn-ghost btn-sm" onclick="jumpToInvoice('${esc(existing.id)}')">View / Edit</button>
+      </div>`;
+        }
+        return `<div class="chl-row">
+      <div class="who">${esc(r.code)}<small>${r.bags} items · ${inr(r.amount)}</small></div>
+      <button class="btn btn-green btn-sm" onclick="quickCreateInvoice('${esc(r.code)}')">🧾 Invoice</button>
+    </div>`;
+    }).join('');
+}
+function quickCreateInvoice(code) {
+    const inv = createInvoice(curDate(), code);
+    save(); autoBackup(); renderAll();
+    toast(inv.id + ' create ஆனது ✔ (' + inr(invoiceTotal(inv)) + ')');
+}
+function jumpToInvoice(id) {
+    document.querySelector('nav.tabs button[data-tab=parties]').click();
+    window.scrollTo({ top: 0 });
+    setTimeout(() => {
+        const el = document.getElementById('inv-row-' + id);
+        if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }, 150);
+}
+if ($('invCreateBtn')) $('invCreateBtn').addEventListener('click', () => {
+    const code = $('invNewCode').value;
+    const date = $('invNewDate').value || curDate();
+    if (!code) { toast('Receiver தேர்ந்தெடுக்கவும்'); return; }
+    const inv = createInvoice(date, code);
+    save(); autoBackup(); renderAll();
+    toast(inv.id + ' create ஆனது ✔ (' + inr(invoiceTotal(inv)) + ')');
+});
+
+function invoiceLineRowHTML(l) {
+    l = l || { seller: '', type: '', qty: '', rate: '' };
+    return `<div class="recv-row" style="flex-wrap:wrap">
+    <input class="inv-seller" type="text" placeholder="Seller" value="${esc(l.seller)}" style="flex:1.3;min-width:100px">
+    <input class="inv-type" type="text" placeholder="Item type" value="${esc(l.type)}" style="flex:1.1;min-width:90px">
+    <input class="inv-qty" type="number" placeholder="Qty" min="0" value="${esc(l.qty)}" style="width:64px">
+    <input class="inv-rate" type="number" placeholder="Rate" min="0" value="${esc(l.rate)}" style="width:74px">
+    <button class="del" type="button" title="Remove" tabindex="-1">✕</button>
+  </div>`;
+}
+function renderInvoiceHistory() {
+    const sel = $('invNewCode');
+    if (sel) {
+        const codes = allPartyNames('receivers');
+        sel.innerHTML = '<option value="">— choose receiver —</option>' + codes.map(c => `<option value="${esc(c)}">${esc(c)}</option>`).join('');
+    }
+    const box = $('invoiceList');
+    if (!box) return;
+    const list = allInvoicesSorted().slice(0, 40);
+    if (!list.length) { box.innerHTML = '<div class="empty">Invoices இன்னும் create ஆகல.</div>'; return; }
+    box.innerHTML = list.map(inv => {
+        if (editingInvoiceId === inv.id) {
+            return `<div class="chl-row" style="flex-wrap:wrap" id="inv-row-${esc(inv.id)}">
+        <div class="who" style="flex-basis:100%">✏️ Editing: ${esc(inv.id)} — ${esc(inv.code)} (${fmtDate(inv.date)})</div>
+        <div style="flex-basis:100%;margin-top:6px">
+          <div id="invEditLines">${(inv.lines || []).map(invoiceLineRowHTML).join('')}</div>
+          <button class="btn btn-ghost btn-sm" id="invAddLineBtn" type="button" style="margin-top:6px">＋ Add line</button>
+          <label class="fld">Note</label>
+          <input type="text" id="invEditNote" value="${esc(inv.note || '')}" placeholder="optional note">
+          <div class="totline"><span>Total</span><span id="invEditTotal">${inr(invoiceTotal(inv))}</span></div>
+          <div style="display:flex;gap:8px;margin-top:8px">
+            <button class="btn btn-green btn-sm" style="flex:1" onclick="saveInvoiceEdits('${esc(inv.id)}')">💾 Save</button>
+            <button class="btn btn-ghost btn-sm" style="flex:1" onclick="cancelInvoiceEdit()">Cancel</button>
+            <button class="btn btn-danger btn-sm" onclick="deleteInvoiceUI('${esc(inv.id)}')">🗑️</button>
+          </div>
+        </div>
+      </div>`;
+        }
+        return `<div class="chl-row" id="inv-row-${esc(inv.id)}">
+      <div class="who">${esc(inv.id)} — ${esc(inv.code)}<small>${fmtDate(inv.date)} · ${inr(invoiceTotal(inv))}${inv.note ? ' · ' + esc(inv.note) : ''}</small></div>
+      <button class="btn btn-ghost btn-sm" onclick="exportInvoicePDF('${esc(inv.id)}')">PDF</button>
+      <button class="icon-btn" onclick="editInvoiceUI('${esc(inv.id)}')" title="Edit">✏️</button>
+      <button class="icon-btn red" onclick="deleteInvoiceUI('${esc(inv.id)}')" title="Delete">🗑️</button>
+    </div>`;
+    }).join('');
+}
+function editInvoiceUI(id) {
+    editingInvoiceId = id;
+    renderInvoiceHistory();
+    setTimeout(() => { const el = document.getElementById('inv-row-' + id); if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' }); }, 50);
+}
+function cancelInvoiceEdit() { editingInvoiceId = null; renderInvoiceHistory(); }
+function recalcInvEditTotal() {
+    let total = 0;
+    document.querySelectorAll('#invEditLines .recv-row').forEach(row => {
+        const qty = +row.querySelector('.inv-qty').value || 0;
+        const rate = +row.querySelector('.inv-rate').value || 0;
+        total += qty * rate;
+    });
+    if ($('invEditTotal')) $('invEditTotal').textContent = inr(total);
+}
+function saveInvoiceEdits(id) {
+    const inv = findInvoice(id); if (!inv) return;
+    const lines = [];
+    document.querySelectorAll('#invEditLines .recv-row').forEach(row => {
+        const seller = row.querySelector('.inv-seller').value.trim();
+        const type = row.querySelector('.inv-type').value.trim();
+        const qty = +row.querySelector('.inv-qty').value || 0;
+        const rate = +row.querySelector('.inv-rate').value || 0;
+        if (seller && qty > 0) lines.push({ seller, type, qty, rate, amount: qty * rate });
+    });
+    if (!lines.length) { toast('குறைந்தது ஒரு வரி (seller + qty) வேண்டும்'); return; }
+    inv.lines = lines;
+    inv.note = $('invEditNote') ? $('invEditNote').value.trim() : (inv.note || '');
+    inv.updatedAt = new Date().toISOString();
+    editingInvoiceId = null;
+    save(); autoBackup(); renderAll();
+    toast(inv.id + ' update ஆனது ✔');
+}
+function deleteInvoiceUI(id) {
+    if (!confirm(id + '-ஐ delete பண்ணலாமா? (இதனால் Ledger balance பாதிக்கப்படாது — trip entry அப்படியே இருக்கும்)')) return;
+    deleteInvoiceRecord(id);
+    if (editingInvoiceId === id) editingInvoiceId = null;
+    save(); autoBackup(); renderAll();
+    toast('Invoice deleted');
+}
+if ($('invoiceList')) {
+    $('invoiceList').addEventListener('click', e => {
+        if (e.target.id === 'invAddLineBtn') {
+            $('invEditLines').insertAdjacentHTML('beforeend', invoiceLineRowHTML());
+        } else if (e.target.classList.contains('del')) {
+            e.target.closest('.recv-row').remove();
+            recalcInvEditTotal();
+        }
+    });
+    $('invoiceList').addEventListener('input', e => {
+        if (e.target.classList.contains('inv-qty') || e.target.classList.contains('inv-rate')) recalcInvEditTotal();
+    });
+}
+
+/* ---------------- Credit Note (formal doc for a Deduction) ---------------- */
+function viewCreditNote(i) {
+    const a = store.adjustments[i]; if (!a) return;
+    const isNew = !a.cnNo;
+    ensureCreditNoteNo(a);
+    if (isNew) { save(); autoBackup(); renderAll(); }
+    exportCreditNotePDF(i);
+}
+
 function renderAdjustments() {
     if (!$('adjCode')) return;
     const codes = allPartyNames('receivers');
@@ -1399,8 +1730,9 @@ function renderAdjustments() {
         const a = store.adjustments[i];
         return `<div class="chl-row">
       <div class="who">${esc(a.code)} — <span class="money" style="color:var(--danger)">− ${inr(a.amount)}</span>
-        <small>${TYPE_LABEL[a.type] || a.type} · ${fmtDate(a.date)}${a.note ? ' · ' + esc(a.note) : ''}</small></div>
+        <small>${TYPE_LABEL[a.type] || a.type} · ${fmtDate(a.date)}${a.note ? ' · ' + esc(a.note) : ''}${a.cnNo ? ' · 🧾 ' + esc(a.cnNo) : ''}</small></div>
       <div style="white-space:nowrap">
+        <button class="icon-btn" onclick="viewCreditNote(${i})" title="Credit Note PDF">🧾</button>
         <button class="icon-btn" onclick="editAdj(${i})" title="Edit">✏️</button>
         <button class="icon-btn red" onclick="deleteAdjustment(${i})" title="Delete">🗑️</button>
       </div>
@@ -1605,6 +1937,14 @@ $('restoreFile').addEventListener('change', ev => {
             if (Array.isArray(inc.indents)) {
                 const existingIds = new Set(store.indents.map(x => x.id));
                 inc.indents.forEach(x => { if (!existingIds.has(x.id)) { store.indents.push(x); existingIds.add(x.id); } });
+            }
+            if (Array.isArray(inc.invoices)) {
+                const existingInvIds = new Set(store.invoices.map(x => x.id));
+                inc.invoices.forEach(x => { if (!existingInvIds.has(x.id)) { store.invoices.push(x); existingInvIds.add(x.id); } });
+            }
+            if (Array.isArray(inc.trips)) {
+                const existingTripIds = new Set(store.trips.map(x => x.id));
+                inc.trips.forEach(x => { if (!existingTripIds.has(x.id)) { store.trips.push(x); existingTripIds.add(x.id); } });
             }
             save(); syncRateInput(); renderAll();
             toast('Restored ' + nDays + ' day(s) ✔');
