@@ -56,8 +56,8 @@
   <div class="drawer-backdrop" id="drawerBackdrop"></div>
   <nav class="drawer-menu" id="drawerMenu" aria-label="Main menu">
     <div class="drawer-head">🍋 தீசன் Trip Sheet<button class="drawer-close" id="drawerCloseBtn" type="button" aria-label="Close menu">✕</button></div>
-    <button data-tab="entry" class="active"><span class="ico">✏️</span>Entry</button>
-    <button data-tab="trip"><span class="ico">🚚</span>Trip Sheet</button>
+    <button data-tab="entry"><span class="ico">✏️</span>Entry</button>
+    <button data-tab="trip" class="active"><span class="ico">🚚</span>Trip Sheet</button>
     <button data-tab="recv"><span class="ico">📦</span>Receivers</button>
     <button data-tab="orders"><span class="ico">📋</span>Orders</button>
     <button data-tab="parties"><span class="ico">👥</span>Parties</button>
@@ -67,9 +67,14 @@
     <button data-tab="backup"><span class="ico">🛟</span>Backup</button>
   </nav>
 
+  <!-- Backdrop for the Entry bottom-sheet (FAB / Entry nav opens this) -->
+  <div class="modal-backdrop" id="entryBackdrop"></div>
+
   <main>
-    <!-- ============ TAB: ENTRY ============ -->
-    <section class="tab-page active" id="page-entry">
+    <!-- ============ TAB: ENTRY (opens as a bottom-sheet via FAB) ============ -->
+    <section class="tab-page" id="page-entry">
+      <div class="party-modal-handle"></div>
+      <button class="modal-close" id="entrySheetClose" type="button" aria-label="Close">✕</button>
       <div class="card">
         <h2 id="formTitle">✏️ New Load Entry</h2>
         <label class="fld">Seller / Shop Name (loading point)</label>
@@ -108,12 +113,13 @@
       </div>
     </section>
 
-    <!-- ============ TAB: TRIP SHEET ============ -->
-    <section class="tab-page" id="page-trip">
+    <!-- ============ TAB: TRIP SHEET (default landing screen) ============ -->
+    <section class="tab-page active" id="page-trip">
       <div class="card" style="padding:10px 14px;margin-bottom:10px;display:flex;align-items:center;gap:10px">
         <label class="fld" style="margin:0;white-space:nowrap">🚚 வண்டி:</label>
         <select id="vehicleFilterTrip" style="flex:1"></select>
       </div>
+
       <div class="card" id="tripControlCard"></div>
       <div class="stats">
         <div class="stat">
@@ -264,7 +270,7 @@
           Balance = charges − payments received.</p>
         <div id="ledgerTable"></div>
       </div>
-      <details class="card">
+      <details class="card" id="paymentFormDetails">
         <summary>🧾 Record Payment Received</summary>
         <div class="details-body">
         <label class="fld" style="margin-top:0">From receiver</label>
@@ -280,11 +286,11 @@
         </div>
         </div>
       </details>
-      <div class="card">
-        <h2>📜 Payment History</h2>
-        <div id="payList"></div>
-      </div>
-      <details class="card">
+      <details class="card" id="paymentHistoryDetails">
+        <summary>📜 Payment History <span class="count-badge" id="payHistCount">0</span></summary>
+        <div class="details-body" id="payList"></div>
+      </details>
+      <details class="card" id="adjustmentFormDetails">
         <summary>🔻 Record Deduction (Damage / Shortage / Discount)</summary>
         <div class="details-body">
         <p class="hint" style="margin-bottom:10px">GST bill இல்லாததால் இது நேரடியா receiver-ன் balance-ல் இருந்து கழிக்கப்படும். "Credit Note" வேணும்னா, கீழே Deduction History-ல் அந்த entry-க்கு பக்கத்தில் 🧾 பட்டன் அழுத்தி formal document-ஆ print பண்ணலாம்.</p>
@@ -308,10 +314,10 @@
         </div>
         </div>
       </details>
-      <div class="card">
-        <h2>📜 Deduction History</h2>
-        <div id="adjList"></div>
-      </div>
+      <details class="card" id="deductionHistoryDetails">
+        <summary>📜 Deduction History <span class="count-badge" id="adjHistCount">0</span></summary>
+        <div class="details-body" id="adjList"></div>
+      </details>
       <details class="card">
         <summary>🧾 Invoices — Manual Create</summary>
         <div class="details-body">
@@ -330,12 +336,14 @@
         <button class="btn btn-green btn-block" id="invCreateBtn">🧾 Invoice உருவாக்கு</button>
         </div>
       </details>
-      <div class="card">
-        <h2>📜 Invoice History</h2>
+      <details class="card" id="invoiceHistoryDetails">
+        <summary>📜 Invoice History <span class="count-badge" id="invHistCount">0</span></summary>
+        <div class="details-body">
         <p class="hint" style="margin-bottom:10px">Invoice-ஐ Edit பண்ணா line items மட்டும் மாறும் — receiver-ன் balance
           (Ledger) இதனால் மாறாது, அது trip entry-ஐ வைச்சே கணக்கிடப்படும்.</p>
         <div id="invoiceList"></div>
-      </div>
+        </div>
+      </details>
       <div class="card">
         <h2>🚚 Seller Masters</h2>
         <p class="hint">Name, address &amp; WhatsApp number of each loading point. Names appearing in trip entries
@@ -554,10 +562,13 @@
     </section>
   </main>
 
+  <!-- Floating Action Button — opens the Entry bottom-sheet as a fresh "New Load Entry" -->
+  <button class="fab-btn" id="fabNewEntry" type="button" aria-label="New Load Entry">+</button>
+
   <!-- Bottom tab bar (top 3 daily-use tabs + More → opens Hamburger Drawer) -->
   <nav class="tabs">
-    <button data-tab="entry" class="active"><span class="ico">✏️</span>Entry</button>
-    <button data-tab="trip"><span class="ico">🚚</span>Trip Sheet</button>
+    <button data-tab="entry"><span class="ico">✏️</span>Entry</button>
+    <button data-tab="trip" class="active"><span class="ico">🚚</span>Trip Sheet</button>
     <button data-tab="recv"><span class="ico">📦</span>Receivers</button>
     <button id="moreNavBtn" type="button"><span class="ico">☰</span>More</button>
   </nav>
