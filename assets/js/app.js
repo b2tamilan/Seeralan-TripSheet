@@ -1,7 +1,7 @@
 'use strict';
 /* ================= State ================= */
 const LS_KEY = 'lemonTripSheet_v1';
-let store = { rate: 250, autoBackup: true, days: {}, masters: { sellers: {}, receivers: {} }, payments: [], itemTypes: [], signature: null, driverInfo: {}, tripSalaries: {}, expenses: [], indents: [], adjustments: [], trips: [], invoices: [] };
+let store = { rate: 250, autoBackup: true, days: {}, masters: { sellers: {}, receivers: {} }, payments: [], itemTypes: [], driverInfo: {}, tripSalaries: {}, expenses: [], indents: [], adjustments: [], trips: [], invoices: [] };
 let editIndex = -1;
 let editPaymentIndex = -1;
 let editAdjustmentIndex = -1;
@@ -35,16 +35,9 @@ function load() {
   if (!Array.isArray(store.adjustments)) store.adjustments = [];
   if (!Array.isArray(store.trips)) store.trips = [];
   if (!Array.isArray(store.invoices)) store.invoices = [];
-
-  if (store.signature) {
-    window.signDataUrl = store.signature;
-  }
 }
 function save() {
   try {
-    if (window.signDataUrl !== undefined) {
-      store.signature = window.signDataUrl;
-    }
     localStorage.setItem(LS_KEY, JSON.stringify(store));
   } catch (e) {
     if (e.name === 'QuotaExceededError' || (e.message && e.message.toLowerCase().includes('quota'))) {

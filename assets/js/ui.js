@@ -698,6 +698,7 @@ function renderAll() {
         if (typeof renderItemTypes === 'function') renderItemTypes();
         if (typeof renderAudit === 'function') renderAudit();
         if (typeof renderExpensesTab === 'function') renderExpensesTab();
+        if (partyModalCode && typeof renderPartyModal === 'function') renderPartyModal();
     }, 10);
 }
 
@@ -1381,9 +1382,7 @@ function buildChallan(r, idx) {
         <tfoot><tr><td></td><td>TOTAL BAGS RECEIVED</td><td class="num">${r.bags}</td></tr></tfoot>
       </table></div>
       <div class="ch-sign">
-        <div>Delivered by (sign)
-          ${window.signDataUrl ? `<br><img src="${window.signDataUrl}" style="height:60px;margin-top:10px">` : ''}
-        </div>
+        <div>Delivered by (sign)</div>
         <div>Received by (sign)</div>
       </div>
       <div class="ch-note">This challan confirms physical delivery of goods only. It is not an invoice and contains no payment details.</div>
@@ -1415,9 +1414,7 @@ function buildInvoiceReport(inv) {
       </table></div>
       ${inv.note ? `<div class="ch-line" style="margin-top:14px">📝 ${esc(inv.note)}</div>` : ''}
       <div class="ch-sign">
-        <div>For Lemon Trip Sheet
-          ${window.signDataUrl ? `<br><img src="${window.signDataUrl}" style="height:60px;margin-top:10px">` : ''}
-        </div>
+        <div>Authorized by / for தீசன்</div>
         <div>Received / Acknowledged</div>
       </div>
       <div class="ch-note">Freight / transport charges only — no GST or other tax applicable.</div>
@@ -1445,9 +1442,7 @@ function buildCreditNoteReport(adj) {
         <tfoot><tr><td colspan="2">TOTAL CREDITED</td><td class="num">${inr(adj.amount)}</td></tr></tfoot>
       </table></div>
       <div class="ch-sign">
-        <div>For Lemon Trip Sheet
-          ${window.signDataUrl ? `<br><img src="${window.signDataUrl}" style="height:60px;margin-top:10px">` : ''}
-        </div>
+        <div>Authorized by / for தீசன்</div>
         <div>Received / Acknowledged</div>
       </div>
       <div class="ch-note">This amount has been deducted from the receiver's outstanding balance. No GST or other tax applicable.</div>
@@ -1515,6 +1510,12 @@ $('ledgerTable').addEventListener('click', e => {
    functions by syncing their (still-present) Parties-tab inputs behind the scenes. */
 let partyModalCode = null;
 let partyModalView = 'profile';
+// In-modal edit state — separate from the Parties-tab edit state (editPaymentIndex /
+// editAdjustmentIndex / editingInvoiceId) so editing from inside the bottom-sheet never
+// clobbers whatever the Parties tab accordion is doing behind it.
+let pmEditPayIndex = -1;
+let pmEditAdjIndex = -1;
+let pmEditingInvoiceId = null;
 
 function openPartyModal() {
     if (!$('partyModal')) return;
@@ -1526,6 +1527,7 @@ function closePartyModal() {
     $('partyModal').classList.remove('open');
     $('partyModalBackdrop').classList.remove('show');
     partyModalCode = null;
+    pmEditPayIndex = -1; pmEditAdjIndex = -1; pmEditingInvoiceId = null;
 }
 if ($('partyModalClose')) $('partyModalClose').addEventListener('click', closePartyModal);
 if ($('partyModalBackdrop')) $('partyModalBackdrop').addEventListener('click', closePartyModal);
@@ -1533,10 +1535,14 @@ if ($('partyModalBackdrop')) $('partyModalBackdrop').addEventListener('click', c
 function showStatement(code) {
     partyModalCode = (code || '').toUpperCase();
     partyModalView = 'profile';
+    pmEditPayIndex = -1; pmEditAdjIndex = -1; pmEditingInvoiceId = null;
     renderPartyModal();
     openPartyModal();
 }
 function partyModalGoto(view) {
+    if (view !== 'payment') pmEditPayIndex = -1;
+    if (view !== 'deduction') pmEditAdjIndex = -1;
+    if (view !== 'invoice') pmEditingInvoiceId = null;
     partyModalView = view;
     renderPartyModal();
 }
@@ -1595,58 +1601,135 @@ function renderPartyProfileView(code) {
   `;
 }
 
+function partyPaymentsForCode(code) {
+    return store.payments
+        .map((p, i) => Object.assign({}, p, { i }))
+        .filter(p => p.code === code)
+        .sort((a, b) => b.date.localeCompare(a.date) || b.i - a.i); // newest first
+}
 function renderPartyPaymentView(code) {
+    const editing = pmEditPayIndex >= 0 ? store.payments[pmEditPayIndex] : null;
+    const list = partyPaymentsForCode(code);
     return `
     <button class="btn btn-ghost btn-sm" onclick="partyModalGoto('profile')" style="margin-bottom:12px">‹ Back</button>
-    <h3 style="margin-bottom:10px;color:var(--leaf-dark)">💰 Record Payment — ${esc(code)}</h3>
+    <h3 style="margin-bottom:10px;color:var(--leaf-dark)">💰 ${editing ? 'Update Payment' : 'Record Payment'} — ${esc(code)}</h3>
     <label class="fld" style="margin-top:0">Date</label>
-    <input type="date" id="pmPayDate" class="plain" value="${todayISO()}">
+    <input type="date" id="pmPayDate" class="plain" value="${editing ? editing.date : todayISO()}">
     <label class="fld">Amount received (₹)</label>
-    <input type="number" id="pmPayAmt" min="0" inputmode="numeric" placeholder="e.g. 5000">
+    <input type="number" id="pmPayAmt" min="0" inputmode="numeric" placeholder="e.g. 5000" value="${editing ? editing.amount : ''}">
     <label class="fld">Note (optional)</label>
-    <input type="text" id="pmPayNote" placeholder="cash / GPay / partial…">
-    <button class="btn btn-green btn-block" onclick="partyModalSavePayment('${esc(code)}')">💾 Save Payment</button>
+    <input type="text" id="pmPayNote" placeholder="cash / GPay / partial…" value="${editing ? esc(editing.note || '') : ''}">
+    <div style="display:flex;gap:8px">
+      <button class="btn btn-green btn-block" style="flex:1" onclick="partyModalSavePayment('${esc(code)}')">💾 ${editing ? 'Update' : 'Save'} Payment</button>
+      ${editing ? `<button class="btn btn-ghost btn-block" style="flex:1" onclick="pmCancelPaymentEdit()">Cancel</button>` : ''}
+    </div>
+    <h3 style="font-size:.85rem;color:var(--muted);margin:16px 0 8px">Payment History</h3>
+    ${list.length ? `<div>${list.map(p => `
+      <div class="chl-row">
+        <div class="who">${inr(p.amount)}<small>${fmtDate(p.date)}${p.note ? ' · ' + esc(p.note) : ''}</small></div>
+        <div style="white-space:nowrap">
+          <button class="icon-btn" onclick="pmEditPayment(${p.i})" title="Edit">✏️</button>
+          <button class="icon-btn red" onclick="pmDeletePayment(${p.i})" title="Delete">🗑️</button>
+        </div>
+      </div>`).join('')}</div>` : '<div class="empty" style="padding:14px 0">No payments yet.</div>'}
   `;
 }
+function pmEditPayment(i) { pmEditPayIndex = i; renderPartyModal(); }
+function pmCancelPaymentEdit() { pmEditPayIndex = -1; renderPartyModal(); }
 function partyModalSavePayment(code) {
     const amount = +$('pmPayAmt').value;
     const date = $('pmPayDate').value || todayISO();
+    const note = $('pmPayNote').value.trim();
     if (!(amount > 0)) { toast('தொகையை போடவும்'); return; }
-    store.payments.push({ date, code, amount, note: $('pmPayNote').value.trim() });
+    if (pmEditPayIndex >= 0) {
+        store.payments[pmEditPayIndex] = { date, code, amount, note };
+        pmEditPayIndex = -1;
+        save(); autoBackup(); renderAll();
+        toast('Payment update ஆனது ✔');
+    } else {
+        store.payments.push({ date, code, amount, note });
+        save(); autoBackup(); renderAll();
+        toast(inr(amount) + ' saved for ' + code + ' ✔');
+    }
+}
+function pmDeletePayment(i) {
+    const p = store.payments[i]; if (!p) return;
+    if (!confirm('Delete payment of ' + inr(p.amount) + ' on ' + fmtDate(p.date) + '?')) return;
+    store.payments.splice(i, 1);
+    if (pmEditPayIndex === i) pmEditPayIndex = -1;
     save(); autoBackup(); renderAll();
-    toast(inr(amount) + ' saved for ' + code + ' ✔');
-    partyModalGoto('profile');
+    toast('Payment deleted');
 }
 
+function partyAdjustmentsForCode(code) {
+    return (store.adjustments || [])
+        .map((a, i) => Object.assign({}, a, { i }))
+        .filter(a => a.code === code)
+        .sort((a, b) => b.date.localeCompare(a.date) || b.i - a.i); // newest first
+}
+const PM_ADJ_TYPE_LABEL = { damage: 'Damage 📦💥', shortage: 'Shortage (குறைவு) ⚖️', discount: 'Discount 🏷️', other: 'Other 📝' };
 function renderPartyDeductionView(code) {
+    const editing = pmEditAdjIndex >= 0 ? store.adjustments[pmEditAdjIndex] : null;
+    const list = partyAdjustmentsForCode(code);
     return `
     <button class="btn btn-ghost btn-sm" onclick="partyModalGoto('profile')" style="margin-bottom:12px">‹ Back</button>
-    <h3 style="margin-bottom:10px;color:var(--danger)">🔻 Record Deduction — ${esc(code)}</h3>
+    <h3 style="margin-bottom:10px;color:var(--danger)">🔻 ${editing ? 'Update Deduction' : 'Record Deduction'} — ${esc(code)}</h3>
     <label class="fld" style="margin-top:0">Date</label>
-    <input type="date" id="pmAdjDate" class="plain" value="${todayISO()}">
+    <input type="date" id="pmAdjDate" class="plain" value="${editing ? editing.date : todayISO()}">
     <label class="fld">Deduction Amount (₹)</label>
-    <input type="number" id="pmAdjAmt" min="0" inputmode="numeric" placeholder="e.g. 250">
+    <input type="number" id="pmAdjAmt" min="0" inputmode="numeric" placeholder="e.g. 250" value="${editing ? editing.amount : ''}">
     <label class="fld">Type</label>
     <select id="pmAdjType">
-      <option value="damage">Damage 📦💥</option>
-      <option value="shortage">Shortage (குறைவு) ⚖️</option>
-      <option value="discount">Discount 🏷️</option>
-      <option value="other">Other 📝</option>
+      <option value="damage" ${editing && editing.type === 'damage' ? 'selected' : ''}>Damage 📦💥</option>
+      <option value="shortage" ${editing && editing.type === 'shortage' ? 'selected' : ''}>Shortage (குறைவு) ⚖️</option>
+      <option value="discount" ${editing && editing.type === 'discount' ? 'selected' : ''}>Discount 🏷️</option>
+      <option value="other" ${editing && editing.type === 'other' ? 'selected' : ''}>Other 📝</option>
     </select>
     <label class="fld">Note</label>
-    <input type="text" id="pmAdjNote" placeholder="e.g. 2 bags transit-ல் கெட்டுப்போனது">
-    <button class="btn btn-danger btn-block" onclick="partyModalSaveAdjustment('${esc(code)}')">💾 Save Deduction</button>
+    <input type="text" id="pmAdjNote" placeholder="e.g. 2 bags transit-ல் கெட்டுப்போனது" value="${editing ? esc(editing.note || '') : ''}">
+    <div style="display:flex;gap:8px">
+      <button class="btn btn-danger btn-block" style="flex:1" onclick="partyModalSaveAdjustment('${esc(code)}')">💾 ${editing ? 'Update' : 'Save'} Deduction</button>
+      ${editing ? `<button class="btn btn-ghost btn-block" style="flex:1" onclick="pmCancelAdjEdit()">Cancel</button>` : ''}
+    </div>
+    <h3 style="font-size:.85rem;color:var(--muted);margin:16px 0 8px">Deduction History</h3>
+    ${list.length ? `<div>${list.map(a => `
+      <div class="chl-row">
+        <div class="who">− ${inr(a.amount)}<small>${PM_ADJ_TYPE_LABEL[a.type] || a.type} · ${fmtDate(a.date)}${a.note ? ' · ' + esc(a.note) : ''}${a.cnNo ? ' · 🧾 ' + esc(a.cnNo) : ''}</small></div>
+        <div style="white-space:nowrap">
+          <button class="icon-btn" onclick="viewCreditNote(${a.i})" title="Credit Note PDF">🧾</button>
+          <button class="icon-btn" onclick="pmEditAdjustment(${a.i})" title="Edit">✏️</button>
+          <button class="icon-btn red" onclick="pmDeleteAdjustment(${a.i})" title="Delete">🗑️</button>
+        </div>
+      </div>`).join('')}</div>` : '<div class="empty" style="padding:14px 0">No deductions yet.</div>'}
   `;
 }
+function pmEditAdjustment(i) { pmEditAdjIndex = i; renderPartyModal(); }
+function pmCancelAdjEdit() { pmEditAdjIndex = -1; renderPartyModal(); }
 function partyModalSaveAdjustment(code) {
     const amount = +$('pmAdjAmt').value;
     const date = $('pmAdjDate').value || todayISO();
     const type = $('pmAdjType').value;
+    const note = $('pmAdjNote').value.trim();
     if (!(amount > 0)) { toast('Deduction amount போடவும்'); return; }
-    store.adjustments.push({ date, code, amount, type, note: $('pmAdjNote').value.trim() });
+    if (pmEditAdjIndex >= 0) {
+        const cnNo = store.adjustments[pmEditAdjIndex].cnNo;
+        store.adjustments[pmEditAdjIndex] = Object.assign({ date, code, amount, type, note }, cnNo ? { cnNo } : {});
+        pmEditAdjIndex = -1;
+        save(); autoBackup(); renderAll();
+        toast('Deduction update ஆனது ✔');
+    } else {
+        store.adjustments.push({ date, code, amount, type, note });
+        save(); autoBackup(); renderAll();
+        toast('₹' + amount.toLocaleString('en-IN') + ' deducted for ' + code + ' ✔');
+    }
+}
+function pmDeleteAdjustment(i) {
+    const a = store.adjustments[i]; if (!a) return;
+    if (!confirm('Delete deduction of ' + inr(a.amount) + ' on ' + fmtDate(a.date) + '?')) return;
+    store.adjustments.splice(i, 1);
+    if (pmEditAdjIndex === i) pmEditAdjIndex = -1;
     save(); autoBackup(); renderAll();
-    toast('₹' + amount.toLocaleString('en-IN') + ' deducted for ' + code + ' ✔');
-    partyModalGoto('profile');
+    toast('Deduction deleted');
 }
 
 function renderPartyStatementView(code) {
@@ -1657,14 +1740,44 @@ function renderPartyStatementView(code) {
     <button class="btn btn-ghost btn-sm" onclick="partyModalGoto('profile')" style="margin-bottom:12px">‹ Back</button>
     <h3 style="margin-bottom:10px;color:var(--leaf-dark)">🧾 Ledger Statement — ${esc(code)}</h3>
     <div style="display:flex;gap:10px;margin-bottom:12px">
-      <div style="flex:1"><label class="fld" style="margin-top:0">From</label><input type="date" id="pmStmtFrom" class="plain" value="${from}"></div>
-      <div style="flex:1"><label class="fld" style="margin-top:0">To</label><input type="date" id="pmStmtTo" class="plain" value="${to}"></div>
+      <div style="flex:1"><label class="fld" style="margin-top:0">From</label><input type="date" id="pmStmtFrom" class="plain" value="${from}" onchange="renderPmStatementTable('${esc(code)}')"></div>
+      <div style="flex:1"><label class="fld" style="margin-top:0">To</label><input type="date" id="pmStmtTo" class="plain" value="${to}" onchange="renderPmStatementTable('${esc(code)}')"></div>
     </div>
-    <div style="display:flex;gap:10px">
+    <div style="display:flex;gap:10px;margin-bottom:12px">
       <button class="btn btn-green btn-sm" style="flex:1" onclick="partyModalExportStatement('${esc(code)}','pdf')">📄 PDF</button>
       <button class="btn btn-ghost btn-sm" style="flex:1" onclick="partyModalExportStatement('${esc(code)}','excel')">📊 Excel</button>
     </div>
+    <div id="pmStmtTableWrap"></div>
   `;
+}
+// Renders/refreshes just the statement table — kept chronological (oldest→newest) with
+// a running balance, like a bank statement, rather than newest-first: reversing the
+// order would make the "Balance" column unreadable since each row's balance only makes
+// sense relative to the row above it.
+function renderPmStatementTable(code) {
+    const from = $('pmStmtFrom') ? $('pmStmtFrom').value : '';
+    const to = $('pmStmtTo') ? $('pmStmtTo').value : '';
+    const box = $('pmStmtTableWrap');
+    if (!box) return;
+    if (!from || !to) { box.innerHTML = '<div class="empty">தேதிகளை தேர்ந்தெடுக்கவும்</div>'; return; }
+    if (from > to) { box.innerHTML = '<div class="empty">From Date must be before To Date</div>'; return; }
+    const rows = receiverStatementRows(code, from, to);
+    if (!rows.length) { box.innerHTML = '<div class="empty">இந்த காலகட்டத்தில் பதிவுகள் இல்லை.</div>'; return; }
+    let tb = 0, ta = 0, tp = 0;
+    rows.forEach(r => { if (!r.isOpening) { tb += r.bags || 0; ta += r.amount || 0; tp += r.payment || 0; } });
+    const finalBal = rows[rows.length - 1].balance;
+    box.innerHTML = `<div class="tbl-wrap" style="overflow-x:auto"><table>
+      <thead><tr><th>Date</th><th>Details</th><th class="num">Qty</th><th class="num">Amount</th><th class="num">Payment</th><th class="num">Balance</th></tr></thead>
+      <tbody>${rows.map(r => `<tr>
+        <td>${r.isOpening ? '—' : fmtDate(r.date)}</td>
+        <td><b>${esc(r.seller)}</b></td>
+        <td class="num">${r.bags || '-'}</td>
+        <td class="num">${r.amount ? inr(r.amount) : '-'}</td>
+        <td class="num" style="color:var(--leaf-dark)">${r.payment ? inr(r.payment) : '-'}</td>
+        <td class="num" style="font-weight:800;color:${r.balance > 0 ? 'var(--danger)' : r.balance < 0 ? 'var(--leaf)' : 'inherit'}">${inr(r.balance)}</td>
+      </tr>`).join('')}</tbody>
+      <tfoot><tr><td colspan="2">TOTAL</td><td class="num">${tb}</td><td class="num">${inr(ta)}</td><td class="num">${inr(tp)}</td><td class="num">${inr(finalBal)}</td></tr></tfoot>
+    </table></div>`;
 }
 function partyModalExportStatement(code, kind) {
     const from = $('pmStmtFrom').value, to = $('pmStmtTo').value;
@@ -1679,19 +1792,15 @@ function partyModalExportStatement(code, kind) {
 }
 
 function renderPartyInvoiceView(code) {
-    const existing = invoicesForCode(code);
+    const existing = invoicesForCode(code); // already newest-first
     return `
     <button class="btn btn-ghost btn-sm" onclick="partyModalGoto('profile')" style="margin-bottom:12px">‹ Back</button>
     <h3 style="margin-bottom:10px;color:var(--leaf-dark)">📝 Invoice — ${esc(code)}</h3>
     <label class="fld" style="margin-top:0">Date</label>
     <input type="date" id="pmInvDate" class="plain" value="${curDate()}">
     <button class="btn btn-green btn-block" onclick="partyModalCreateInvoice('${esc(code)}')">🧾 Invoice உருவாக்கு</button>
-    ${existing.length ? `<h3 style="font-size:.82rem;color:var(--muted);margin:16px 0 8px">Past Invoices</h3>
-      <div>${existing.slice(0, 6).map(inv => `
-        <div class="chl-row">
-          <div class="who">${esc(inv.id)}<small>${fmtDate(inv.date)} · ${inr(invoiceTotal(inv))}</small></div>
-          <button class="btn btn-ghost btn-sm" onclick="exportInvoicePDF('${esc(inv.id)}')">PDF</button>
-        </div>`).join('')}</div>` : ''}
+    <h3 style="font-size:.85rem;color:var(--muted);margin:16px 0 8px">Invoice History</h3>
+    ${existing.length ? `<div>${existing.map(inv => partyInvoiceRowHTML(inv)).join('')}</div>` : '<div class="empty" style="padding:14px 0">Invoices இன்னும் create ஆகல.</div>'}
   `;
 }
 function partyModalCreateInvoice(code) {
@@ -1700,6 +1809,85 @@ function partyModalCreateInvoice(code) {
     save(); autoBackup(); renderAll();
     toast(inv.id + ' create ஆனது ✔ (' + inr(invoiceTotal(inv)) + ')');
     partyModalGoto('invoice');
+}
+
+/* ---- Inline invoice edit inside the Party Modal (mirrors the Parties-tab editor,
+   but with its own ids/state (pm-prefixed) so both can never collide in the DOM) ---- */
+function partyInvoiceRowHTML(inv) {
+    if (pmEditingInvoiceId === inv.id) {
+        return `<div class="chl-row" style="flex-wrap:wrap">
+        <div class="who" style="flex-basis:100%">✏️ Editing: ${esc(inv.id)} (${fmtDate(inv.date)})</div>
+        <div style="flex-basis:100%;margin-top:6px">
+          <div id="pmInvEditLines">${(inv.lines || []).map(pmInvoiceLineRowHTML).join('')}</div>
+          <button class="btn btn-ghost btn-sm" type="button" style="margin-top:6px" onclick="pmAddInvoiceLine()">＋ Add line</button>
+          <label class="fld">Note</label>
+          <input type="text" id="pmInvEditNote" value="${esc(inv.note || '')}" placeholder="optional note">
+          <div class="totline"><span>Total</span><span id="pmInvEditTotal">${inr(invoiceTotal(inv))}</span></div>
+          <div style="display:flex;gap:8px;margin-top:8px">
+            <button class="btn btn-green btn-sm" style="flex:1" onclick="pmSaveInvoiceEdits('${esc(inv.id)}')">💾 Save</button>
+            <button class="btn btn-ghost btn-sm" style="flex:1" onclick="pmCancelInvoiceEdit()">Cancel</button>
+            <button class="btn btn-danger btn-sm" onclick="pmDeleteInvoiceUI('${esc(inv.id)}')">🗑️</button>
+          </div>
+        </div>
+      </div>`;
+    }
+    return `<div class="chl-row">
+      <div class="who">${esc(inv.id)}<small>${fmtDate(inv.date)} · ${inr(invoiceTotal(inv))}${inv.note ? ' · ' + esc(inv.note) : ''}</small></div>
+      <div style="white-space:nowrap">
+        <button class="icon-btn" onclick="exportInvoicePDF('${esc(inv.id)}')" title="PDF">📄</button>
+        <button class="icon-btn" onclick="pmEditInvoiceUI('${esc(inv.id)}')" title="Edit">✏️</button>
+        <button class="icon-btn red" onclick="pmDeleteInvoiceUI('${esc(inv.id)}')" title="Delete">🗑️</button>
+      </div>
+    </div>`;
+}
+function pmInvoiceLineRowHTML(l) {
+    l = l || { seller: '', type: '', qty: '', rate: '' };
+    return `<div class="recv-row" style="flex-wrap:wrap">
+    <input class="pminv-seller" type="text" placeholder="Seller" value="${esc(l.seller)}" style="flex:1.3;min-width:100px">
+    <input class="pminv-type" type="text" placeholder="Item type" value="${esc(l.type)}" style="flex:1.1;min-width:90px">
+    <input class="pminv-qty" type="number" placeholder="Qty" min="0" value="${esc(l.qty)}" style="width:64px" oninput="pmRecalcInvEditTotal()">
+    <input class="pminv-rate" type="number" placeholder="Rate" min="0" value="${esc(l.rate)}" style="width:74px" oninput="pmRecalcInvEditTotal()">
+    <button class="del" type="button" title="Remove" onclick="this.closest('.recv-row').remove(); pmRecalcInvEditTotal();">✕</button>
+  </div>`;
+}
+function pmAddInvoiceLine() {
+    if ($('pmInvEditLines')) $('pmInvEditLines').insertAdjacentHTML('beforeend', pmInvoiceLineRowHTML());
+}
+function pmRecalcInvEditTotal() {
+    let total = 0;
+    document.querySelectorAll('#pmInvEditLines .recv-row').forEach(row => {
+        const qty = +row.querySelector('.pminv-qty').value || 0;
+        const rate = +row.querySelector('.pminv-rate').value || 0;
+        total += qty * rate;
+    });
+    if ($('pmInvEditTotal')) $('pmInvEditTotal').textContent = inr(total);
+}
+function pmEditInvoiceUI(id) { pmEditingInvoiceId = id; renderPartyModal(); }
+function pmCancelInvoiceEdit() { pmEditingInvoiceId = null; renderPartyModal(); }
+function pmSaveInvoiceEdits(id) {
+    const inv = findInvoice(id); if (!inv) return;
+    const lines = [];
+    document.querySelectorAll('#pmInvEditLines .recv-row').forEach(row => {
+        const seller = row.querySelector('.pminv-seller').value.trim();
+        const type = row.querySelector('.pminv-type').value.trim();
+        const qty = +row.querySelector('.pminv-qty').value || 0;
+        const rate = +row.querySelector('.pminv-rate').value || 0;
+        if (seller && qty > 0) lines.push({ seller, type, qty, rate, amount: qty * rate });
+    });
+    if (!lines.length) { toast('குறைந்தது ஒரு வரி (seller + qty) வேண்டும்'); return; }
+    inv.lines = lines;
+    inv.note = $('pmInvEditNote') ? $('pmInvEditNote').value.trim() : (inv.note || '');
+    inv.updatedAt = new Date().toISOString();
+    pmEditingInvoiceId = null;
+    save(); autoBackup(); renderAll();
+    toast(inv.id + ' update ஆனது ✔');
+}
+function pmDeleteInvoiceUI(id) {
+    if (!confirm(id + '-ஐ delete பண்ணலாமா? (இதனால் Ledger balance பாதிக்கப்படாது — trip entry அப்படியே இருக்கும்)')) return;
+    deleteInvoiceRecord(id);
+    if (pmEditingInvoiceId === id) pmEditingInvoiceId = null;
+    save(); autoBackup(); renderAll();
+    toast('Invoice deleted');
 }
 
 function renderPartyModal() {
@@ -1712,6 +1900,7 @@ function renderPartyModal() {
     else if (partyModalView === 'invoice') html = renderPartyInvoiceView(code);
     else html = renderPartyProfileView(code);
     $('partyModalBody').innerHTML = html;
+    if (partyModalView === 'statement') renderPmStatementTable(code);
 }
 function editPay(i) {
     const p = store.payments[i];
@@ -2336,15 +2525,6 @@ if ($('removePinBtn')) {
     });
 }
 
-/* ================= Signature Pad ================= */
-window.signDataUrl = null;
-let isSigning = false;
-let signCtx = null;
-
-function canvasBlob(canvas, type) {
-    return new Promise(resolve => canvas.toBlob(blob => resolve(blob), type));
-}
-
 // Inject WhatsApp Backup share button
 const backupRow = $('page-backup').querySelector('.filerow');
 if (backupRow) {
@@ -2381,81 +2561,6 @@ async function shareBackupWhatsApp() {
         toast('இந்த phone-ல் WhatsApp-க்கு நேரடியாக file அனுப்ப முடியவில்லை. "' + fn + '" downloads-ல் சேமிக்கப்பட்டது — WhatsApp திறந்து 📎 Document ஆக attach செய்யவும்.');
         setTimeout(() => window.open('https://wa.me/?text=' + encodeURIComponent('🍋 Lemon Trip Sheet backup (' + fmtDate(curDate()) + ') — attaching file separately.'), '_blank'), 1200);
     }
-}
-
-if ($('signPad')) {
-    const canvas = $('signPad');
-    signCtx = canvas.getContext('2d');
-
-    function resizeCanvas() {
-        const rect = canvas.parentElement.getBoundingClientRect();
-        if (rect.width === 0) return;
-        canvas.width = rect.width;
-        canvas.height = rect.height;
-        if (window.signDataUrl) {
-            let img = new Image();
-            img.onload = () => signCtx.drawImage(img, 0, 0);
-            img.src = window.signDataUrl;
-        } else {
-            signCtx.fillStyle = '#fff';
-            signCtx.fillRect(0, 0, canvas.width, canvas.height);
-        }
-    }
-    setTimeout(resizeCanvas, 300);
-    window.addEventListener('resize', resizeCanvas);
-
-    const getPos = (e) => {
-        const rect = canvas.getBoundingClientRect();
-        const evt = e.touches ? e.touches[0] : e;
-        return { x: evt.clientX - rect.left, y: evt.clientY - rect.top };
-    };
-
-    const startSign = (e) => {
-        if (window.signDataUrl) return;
-        isSigning = true;
-        const p = getPos(e);
-        signCtx.beginPath();
-        signCtx.moveTo(p.x, p.y);
-        e.preventDefault();
-    };
-    const moveSign = (e) => {
-        if (!isSigning) return;
-        const p = getPos(e);
-        signCtx.lineTo(p.x, p.y);
-        signCtx.strokeStyle = '#2d5c1f';
-        signCtx.lineWidth = 2.5;
-        signCtx.lineCap = 'round';
-        signCtx.lineJoin = 'round';
-        signCtx.stroke();
-        e.preventDefault();
-    };
-    const stopSign = (e) => { isSigning = false; };
-
-    canvas.addEventListener('mousedown', startSign);
-    canvas.addEventListener('mousemove', moveSign);
-    window.addEventListener('mouseup', stopSign);
-
-    canvas.addEventListener('touchstart', startSign, { passive: false });
-    canvas.addEventListener('touchmove', moveSign, { passive: false });
-    window.addEventListener('touchend', stopSign);
-}
-
-if ($('clearSignBtn')) {
-    $('clearSignBtn').addEventListener('click', () => {
-        if (!signCtx) return;
-        const c = $('signPad');
-        signCtx.fillStyle = '#fff';
-        signCtx.fillRect(0, 0, c.width, c.height);
-        window.signDataUrl = null;
-        toast('Signature cleared');
-    });
-}
-if ($('saveSignBtn')) {
-    $('saveSignBtn').addEventListener('click', () => {
-        if (!signCtx) return;
-        window.signDataUrl = $('signPad').toDataURL('image/png');
-        toast('Signature locked for Challans ✔');
-    });
 }
 
 /* ================= Initialization ================= */
