@@ -64,6 +64,7 @@
     <button data-tab="analytics"><span class="ico">📈</span>Analytics</button>
     <button data-tab="audit"><span class="ico">🔍</span>Audit</button>
     <button data-tab="expenses"><span class="ico">💰</span>Expenses</button>
+    <button data-tab="settings"><span class="ico">⚙️</span>Settings</button>
     <button data-tab="backup"><span class="ico">🛟</span>Backup</button>
   </nav>
 
@@ -189,18 +190,6 @@
         <button class="btn btn-yellow btn-block" onclick="exportAllChallanImages()">🗂️ All challans — images in one
           ZIP</button>
         <div id="challanList" style="margin-top:8px;margin-bottom:15px"></div>
-        <div style="border-top:1px solid #dfe6cf;padding-top:15px">
-          <h2>🖊️ Digital Signature Pad</h2>
-          <p class="hint" style="margin-bottom:10px">Sign here to attach it to all challans generated below.</p>
-          <div
-            style="border:1px dashed var(--leaf);background:#fff;border-radius:8px;position:relative;overflow:hidden">
-            <canvas id="signPad" style="width:100%;height:140px;touch-action:none;display:block"></canvas>
-          </div>
-          <div style="display:flex;gap:8px;margin-top:10px">
-            <button class="btn btn-ghost btn-sm" id="clearSignBtn" style="flex:1">Clear Signature</button>
-            <button class="btn btn-green btn-sm" id="saveSignBtn" style="flex:1">Save & Lock</button>
-          </div>
-        </div>
       </div>
     </section>
 
@@ -492,8 +481,8 @@
       </div>
     </section>
 
-    <!-- ============ TAB: BACKUP ============ -->
-    <section class="tab-page" id="page-backup">
+    <!-- ============ TAB: SETTINGS (app/UI settings) ============ -->
+    <section class="tab-page" id="page-settings">
       <div class="card">
         <h2>🔒 Security Settings</h2>
         <div style="margin-bottom:10px;font-size:0.9rem;color:var(--muted)">Protect the app with a 4-digit PIN.</div>
@@ -511,9 +500,9 @@
           → <b>Add to Home screen</b>.</p>
       </div>
       <div class="card">
-        <h2>⚙️ Settings</h2>
+        <h2>⚙️ Item Types &amp; App Settings</h2>
 
-        <label class="fld">Item Types &amp; Rates (₹)</label>
+        <label class="fld" style="margin-top:0">Item Types &amp; Rates (₹)</label>
         <p class="hint" style="margin-bottom:8px">Set default and manage available packing types, their collection rate (₹ paid by receiver), and Load Man wage (₹ paid to load man) per unit.
           <br><b>Rate priority:</b> Parties tab-ல் ஒரு receiver-க்கு குறிப்பிட்ட Item Type-க்கென Custom Rate கொடுத்தால், அது அந்த item-க்கு மட்டும் இந்த default rate-ஐ override செய்யும். அந்த receiver-க்கு அந்த item-க்கு custom rate இல்லை என்றால், இங்கு கீழே கொடுக்கும் item-type default rate பயன்படும்.</p>
         <div id="itemTypesList" style="display:flex;flex-direction:column;gap:8px;"></div>
@@ -529,6 +518,10 @@
           multiple files — allow it.
         </p>
       </div>
+    </section>
+
+    <!-- ============ TAB: BACKUP (data management only) ============ -->
+    <section class="tab-page" id="page-backup">
       <div class="card">
         <h2>🛟 Backup &amp; Restore</h2>
         <p class="hint">All data lives only in this browser. Take a backup file regularly and keep it in WhatsApp/Drive.
