@@ -1277,3 +1277,70 @@ details.card .details-body {
     grid-template-columns: repeat(2, 1fr);
   }
 }
+
+/* ---------- FAB (New Load Entry) ---------- */
+.fab-btn {
+  position: fixed;
+  right: 18px;
+  bottom: calc(86px + env(safe-area-inset-bottom));
+  width: 58px;
+  height: 58px;
+  border-radius: 50%;
+  background: var(--leaf);
+  color: #fff;
+  font-size: 1.9rem;
+  font-weight: 700;
+  line-height: 1;
+  border: none;
+  box-shadow: 0 4px 16px rgba(29, 37, 16, .3);
+  z-index: 45;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+
+.fab-btn:active {
+  transform: scale(.93);
+}
+
+/* ---------- Entry tab as a bottom-sheet (opened via FAB or Entry nav item) ---------- */
+#page-entry.tab-page.active {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  top: 8vh;
+  z-index: 200;
+  max-width: 680px;
+  margin: 0 auto;
+  background: var(--bg);
+  border-radius: 20px 20px 0 0;
+  overflow-y: auto;
+  padding: 8px 12px calc(24px + env(safe-area-inset-bottom));
+  box-shadow: 0 -8px 30px rgba(0, 0, 0, .25);
+  animation: sheetUp .22s ease;
+}
+
+@keyframes sheetUp {
+  from {
+    transform: translateY(30px);
+    opacity: .5;
+  }
+
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+/* ---------- Accordion count badges ---------- */
+.count-badge {
+  background: var(--chip);
+  color: var(--leaf-dark);
+  font-size: .68rem;
+  font-weight: 700;
+  border-radius: 999px;
+  padding: 2px 9px;
+  margin-left: 6px;
+}
