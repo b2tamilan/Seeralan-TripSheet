@@ -9,18 +9,37 @@ function toast(msg) {
 /* ================= Tabs (bottom nav + hamburger drawer, shared) ================= */
 // Both the trimmed bottom nav (Entry/Trip/Receivers) and the full drawer menu
 // use the same data-tab buttons, so one function keeps them in sync no matter
-// which one the person tapped.
+// which one the person tapped. Entry is special: it always opens as a bottom
+// sheet (with backdrop) over whichever tab was showing before it.
+let lastActiveTab = 'trip';
 function switchTab(tabName) {
     document.querySelectorAll('[data-tab]').forEach(b => b.classList.toggle('active', b.dataset.tab === tabName));
     document.querySelectorAll('.tab-page').forEach(p => p.classList.toggle('active', p.id === 'page-' + tabName));
     if (tabName === 'analytics') renderAnalytics();
     if (tabName === 'audit') renderAudit();
     if (tabName === 'expenses') renderExpensesTab();
+    if (tabName === 'entry') {
+        if ($('entryBackdrop')) $('entryBackdrop').classList.add('show');
+        if ($('fabNewEntry')) $('fabNewEntry').style.display = 'none';
+    } else {
+        lastActiveTab = tabName;
+        if ($('entryBackdrop')) $('entryBackdrop').classList.remove('show');
+        if ($('fabNewEntry')) $('fabNewEntry').style.display = 'flex';
+    }
     closeDrawer();
     window.scrollTo({ top: 0 });
 }
 document.querySelectorAll('[data-tab]').forEach(btn => {
     btn.addEventListener('click', () => switchTab(btn.dataset.tab));
+});
+function closeEntrySheet() { switchTab(lastActiveTab); }
+if ($('entryBackdrop')) $('entryBackdrop').addEventListener('click', closeEntrySheet);
+if ($('entrySheetClose')) $('entrySheetClose').addEventListener('click', closeEntrySheet);
+// FAB — always starts a brand-new blank entry (resetForm), unlike navigating to
+// the Entry tab via the bottom nav / drawer, which preserves any in-progress edit.
+if ($('fabNewEntry')) $('fabNewEntry').addEventListener('click', () => {
+    resetForm();
+    switchTab('entry');
 });
 
 /* ================= Hamburger Drawer (Sidebar Menu) ================= */
@@ -1696,6 +1715,7 @@ function renderPartyModal() {
 }
 function editPay(i) {
     const p = store.payments[i];
+    if ($('paymentFormDetails')) $('paymentFormDetails').open = true;
     $('payCode').value = p.code;
     $('payDate').value = p.date;
     $('payAmt').value = p.amount;
@@ -1771,6 +1791,7 @@ function saveAdjustment() {
 }
 function editAdj(i) {
     const a = store.adjustments[i];
+    if ($('adjustmentFormDetails')) $('adjustmentFormDetails').open = true;
     $('adjCode').value = a.code;
     $('adjDate').value = a.date;
     $('adjAmt').value = a.amount;
@@ -1826,6 +1847,7 @@ function quickCreateInvoice(code) {
 }
 function jumpToInvoice(id) {
     switchTab('parties');
+    if ($('invoiceHistoryDetails')) $('invoiceHistoryDetails').open = true;
     window.scrollTo({ top: 0 });
     setTimeout(() => {
         const el = document.getElementById('inv-row-' + id);
@@ -1857,6 +1879,7 @@ function renderInvoiceHistory() {
         const codes = allPartyNames('receivers');
         sel.innerHTML = '<option value="">— choose receiver —</option>' + codes.map(c => `<option value="${esc(c)}">${esc(c)}</option>`).join('');
     }
+    if ($('invHistCount')) $('invHistCount').textContent = (store.invoices || []).length;
     const box = $('invoiceList');
     if (!box) return;
     const list = allInvoicesSorted().slice(0, 40);
@@ -1889,6 +1912,7 @@ function renderInvoiceHistory() {
 }
 function editInvoiceUI(id) {
     editingInvoiceId = id;
+    if ($('invoiceHistoryDetails')) $('invoiceHistoryDetails').open = true;
     renderInvoiceHistory();
     setTimeout(() => { const el = document.getElementById('inv-row-' + id); if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' }); }, 50);
 }
@@ -1951,6 +1975,7 @@ function viewCreditNote(i) {
 }
 
 function renderAdjustments() {
+    if ($('adjHistCount')) $('adjHistCount').textContent = (store.adjustments || []).length;
     if (!$('adjCode')) return;
     const codes = allPartyNames('receivers');
     $('adjCode').innerHTML = '<option value="">— choose receiver —</option>' + codes.map(c => `<option value="${esc(c)}">${esc(c)}</option>`).join('');
@@ -1974,6 +1999,7 @@ function renderAdjustments() {
 }
 
 function renderPayments() {
+    if ($('payHistCount')) $('payHistCount').textContent = (store.payments || []).length;
     const sel = $('payCode');
     const codes = allPartyNames('receivers');
     sel.innerHTML = '<option value="">— choose receiver —</option>' + codes.map(c => `<option value="${esc(c)}">${esc(c)}</option>`).join('');
