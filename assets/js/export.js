@@ -177,19 +177,19 @@ function exportStatementExcel() {
 
     const wb = XLSX.utils.book_new();
     const s = [['Ledger Statement: ' + code.toUpperCase(), 'Period: ' + dateRangeStr], []];
-    s.push(['Date', 'Seller', 'Qty', 'Item Type', 'Rate', 'Amount (Rs)', 'Payment (Rs)', 'Balance (Rs)']);
+    s.push(['Date', 'Seller', 'Description', 'Qty', 'Rate', 'Amount (Rs)', 'Payment (Rs)', 'Balance (Rs)']);
 
     let tb = 0, ta = 0, tp = 0;
     list.forEach(r => {
         if (!r.isOpening) { tb += r.bags || 0; ta += r.amount || 0; tp += r.payment || 0; }
-        s.push([r.isOpening ? '—' : fmtDate(r.date), r.seller, r.bags || '', r.type || '', r.rate || '', r.amount || '', r.payment || '', r.balance]);
+        s.push([r.isOpening ? '—' : fmtDate(r.date), r.seller, r.type || '', r.bags || '', r.rate || '', r.amount || '', r.payment || '', r.balance]);
     });
 
     const finalBal = list.length ? list[list.length - 1].balance : 0;
-    s.push(['TOTAL', '', tb, '', '', ta, tp, finalBal]);
+    s.push(['TOTAL', '', '', tb, '', ta, tp, finalBal]);
 
     const ws = XLSX.utils.aoa_to_sheet(s);
-    ws['!cols'] = [{ wch: 12 }, { wch: 25 }, { wch: 8 }, { wch: 15 }, { wch: 8 }, { wch: 12 }, { wch: 12 }, { wch: 15 }];
+    ws['!cols'] = [{ wch: 12 }, { wch: 25 }, { wch: 15 }, { wch: 8 }, { wch: 8 }, { wch: 12 }, { wch: 12 }, { wch: 15 }];
 
     XLSX.utils.book_append_sheet(wb, ws, 'Statement');
     XLSX.writeFile(wb, `Statement_${code}_${fDate}_to_${tDate}.xlsx`);

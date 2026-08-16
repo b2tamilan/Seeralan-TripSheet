@@ -1320,6 +1320,7 @@ function buildStatementReport(code, fromStr, toStr) {
         let bodyRows = chunk.map(r => `<tr>
           <td>${r.isOpening ? '—' : fmtDate(r.date)}</td>
           <td><b>${esc(r.seller)}</b></td>
+          <td>${r.type ? esc(r.type) : '—'}</td>
           <td class="num">${r.bags || '-'}</td>
           <td class="num">${r.rate || '-'}</td>
           <td class="num">${(r.amount || !r.isOpening) ? (r.amount ? inr(r.amount) : '-') : '-'}</td>
@@ -1328,7 +1329,7 @@ function buildStatementReport(code, fromStr, toStr) {
         </tr>`).join('');
 
         let isLast = currentIdx >= list.length;
-        let footRow = isLast ? `<tfoot><tr><td colspan="2" style="text-align:right">TOTAL:</td><td class="num">${tb}</td><td></td><td class="num">${inr(ta)}</td><td class="num">${inr(tp)}</td><td class="num">${inr(finalBal)}</td></tr></tfoot>` : '';
+        let footRow = isLast ? `<tfoot><tr><td colspan="3" style="text-align:right">TOTAL:</td><td class="num">${tb}</td><td></td><td class="num">${inr(ta)}</td><td class="num">${inr(tp)}</td><td class="num">${inr(finalBal)}</td></tr></tfoot>` : '';
 
         pagesHtml += `
       <div class="report-page">
@@ -1349,7 +1350,7 @@ function buildStatementReport(code, fromStr, toStr) {
           </div>
         `}
         <div class="tbl-wrap"><table>
-          <thead><tr><th>Date</th><th>Seller / Details</th><th class="num">Bags</th><th class="num">Rate</th><th class="num">Amount (₹)</th><th class="num">Payment (₹)</th><th class="num">Balance (₹)</th></tr></thead>
+          <thead><tr><th>Date</th><th>Seller / Details</th><th>Description</th><th class="num">Bags</th><th class="num">Rate</th><th class="num">Amount (₹)</th><th class="num">Payment (₹)</th><th class="num">Balance (₹)</th></tr></thead>
           <tbody>${bodyRows}</tbody>
            ${footRow}
         </table></div>
@@ -1377,9 +1378,9 @@ function buildChallan(r, idx) {
       </div>
       <div class="ch-line">You have received these bags from:</div>
       <div class="tbl-wrap"><table>
-        <thead><tr><th>#</th><th>From Seller / Shop</th><th class="num">Bags</th></tr></thead>
-        <tbody>${r.sources.map((s, i) => `<tr><td>${i + 1}</td><td><b>${esc(s.name)}</b></td><td class="num"><b>${s.qty}</b></td></tr>`).join('')}</tbody>
-        <tfoot><tr><td></td><td>TOTAL BAGS RECEIVED</td><td class="num">${r.bags}</td></tr></tfoot>
+        <thead><tr><th>#</th><th>From Seller / Shop</th><th>Description</th><th class="num">Bags</th></tr></thead>
+        <tbody>${r.sources.map((s, i) => `<tr><td>${i + 1}</td><td><b>${esc(s.name)}</b></td><td>${esc(s.type || 'Bag')}</td><td class="num"><b>${s.qty}</b></td></tr>`).join('')}</tbody>
+        <tfoot><tr><td colspan="3">TOTAL BAGS RECEIVED</td><td class="num">${r.bags}</td></tr></tfoot>
       </table></div>
       <div class="ch-sign">
         <div>Delivered by (sign)</div>
@@ -1405,7 +1406,7 @@ function buildInvoiceReport(inv) {
         <div class="bags"><div class="n">${inr(total)}</div><div class="t">Total Due</div></div>
       </div>
       <div class="tbl-wrap"><table>
-        <thead><tr><th>#</th><th>Seller / Shop</th><th>Item Type</th><th class="num">Qty</th><th class="num">Rate (₹)</th><th class="num">Amount (₹)</th></tr></thead>
+        <thead><tr><th>#</th><th>Seller / Shop</th><th>Description</th><th class="num">Qty</th><th class="num">Rate (₹)</th><th class="num">Amount (₹)</th></tr></thead>
         <tbody>${(inv.lines || []).map((l, i) => `<tr>
           <td>${i + 1}</td><td><b>${esc(l.seller)}</b></td><td>${esc(l.type || 'Bag')}</td>
           <td class="num">${l.qty}</td><td class="num">${inr(l.rate)}</td><td class="num money">${inr(l.amount)}</td>
@@ -1767,16 +1768,17 @@ function renderPmStatementTable(code) {
     rows.forEach(r => { if (!r.isOpening) { tb += r.bags || 0; ta += r.amount || 0; tp += r.payment || 0; } });
     const finalBal = rows[rows.length - 1].balance;
     box.innerHTML = `<div class="tbl-wrap" style="overflow-x:auto"><table>
-      <thead><tr><th>Date</th><th>Details</th><th class="num">Qty</th><th class="num">Amount</th><th class="num">Payment</th><th class="num">Balance</th></tr></thead>
+      <thead><tr><th>Date</th><th>Details</th><th>Description</th><th class="num">Qty</th><th class="num">Amount</th><th class="num">Payment</th><th class="num">Balance</th></tr></thead>
       <tbody>${rows.map(r => `<tr>
         <td>${r.isOpening ? '—' : fmtDate(r.date)}</td>
         <td><b>${esc(r.seller)}</b></td>
+        <td>${r.type ? esc(r.type) : '—'}</td>
         <td class="num">${r.bags || '-'}</td>
         <td class="num">${r.amount ? inr(r.amount) : '-'}</td>
         <td class="num" style="color:var(--leaf-dark)">${r.payment ? inr(r.payment) : '-'}</td>
         <td class="num" style="font-weight:800;color:${r.balance > 0 ? 'var(--danger)' : r.balance < 0 ? 'var(--leaf)' : 'inherit'}">${inr(r.balance)}</td>
       </tr>`).join('')}</tbody>
-      <tfoot><tr><td colspan="2">TOTAL</td><td class="num">${tb}</td><td class="num">${inr(ta)}</td><td class="num">${inr(tp)}</td><td class="num">${inr(finalBal)}</td></tr></tfoot>
+      <tfoot><tr><td colspan="3">TOTAL</td><td class="num">${tb}</td><td class="num">${inr(ta)}</td><td class="num">${inr(tp)}</td><td class="num">${inr(finalBal)}</td></tr></tfoot>
     </table></div>`;
 }
 function partyModalExportStatement(code, kind) {
@@ -1844,7 +1846,7 @@ function pmInvoiceLineRowHTML(l) {
     l = l || { seller: '', type: '', qty: '', rate: '' };
     return `<div class="recv-row" style="flex-wrap:wrap">
     <input class="pminv-seller" type="text" placeholder="Seller" value="${esc(l.seller)}" style="flex:1.3;min-width:100px">
-    <input class="pminv-type" type="text" placeholder="Item type" value="${esc(l.type)}" style="flex:1.1;min-width:90px">
+    <input class="pminv-type" type="text" placeholder="Description" value="${esc(l.type)}" style="flex:1.1;min-width:90px">
     <input class="pminv-qty" type="number" placeholder="Qty" min="0" value="${esc(l.qty)}" style="width:64px" oninput="pmRecalcInvEditTotal()">
     <input class="pminv-rate" type="number" placeholder="Rate" min="0" value="${esc(l.rate)}" style="width:74px" oninput="pmRecalcInvEditTotal()">
     <button class="del" type="button" title="Remove" onclick="this.closest('.recv-row').remove(); pmRecalcInvEditTotal();">✕</button>
@@ -2056,7 +2058,7 @@ function invoiceLineRowHTML(l) {
     l = l || { seller: '', type: '', qty: '', rate: '' };
     return `<div class="recv-row" style="flex-wrap:wrap">
     <input class="inv-seller" type="text" placeholder="Seller" value="${esc(l.seller)}" style="flex:1.3;min-width:100px">
-    <input class="inv-type" type="text" placeholder="Item type" value="${esc(l.type)}" style="flex:1.1;min-width:90px">
+    <input class="inv-type" type="text" placeholder="Description" value="${esc(l.type)}" style="flex:1.1;min-width:90px">
     <input class="inv-qty" type="number" placeholder="Qty" min="0" value="${esc(l.qty)}" style="width:64px">
     <input class="inv-rate" type="number" placeholder="Rate" min="0" value="${esc(l.rate)}" style="width:74px">
     <button class="del" type="button" title="Remove" tabindex="-1">✕</button>
